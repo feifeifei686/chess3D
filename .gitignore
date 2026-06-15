@@ -1,0 +1,22 @@
+# Build output
+build/
+*/build/
+.gradle/
+
+# Local config (machine-specific SDK path)
+local.properties
+
+# Android Studio / IDE
+.idea/
+*.iml
+.DS_Store
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Keystore (don't commit signing secrets)
+*.jks
+*.keystore
+
+# Logs
+*.log

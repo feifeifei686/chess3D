@@ -1,0 +1,519 @@
+package com.example.chess
+
+import android.graphics.Color
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
+import android.os.Build
+import android.os.Bundle
+import android.view.Gravity
+import android.view.View
+import android.view.ViewGroup
+import android.widget.Button
+import android.widget.FrameLayout
+import android.widget.LinearLayout
+import android.widget.TextView
+import androidx.appcompat.app.AlertDialog
+import androidx.appcompat.app.AppCompatActivity
+
+class MainActivity : AppCompatActivity(), ChessRenderer.Callbacks {
+
+    private lateinit var glView: ChessGLSurfaceView
+    private lateinit var sound: SoundFx
+
+    // HUD (visible during a game)
+    private lateinit var status: TextView
+    private lateinit var material: TextView
+    private lateinit var legend: TextView
+    private lateinit var exitBtn: Button
+    private lateinit var viewBtn: Button
+    private lateinit var undoBtn: Button
+    private lateinit var newGameBtn: Button
+
+    // Full-screen overlays
+    private lateinit var homeOverlay: FrameLayout
+    private lateinit var modeOverlay: FrameLayout
+    private lateinit var difficultyOverlay: FrameLayout
+    private lateinit var colorOverlay: FrameLayout
+
+    // Chosen AI search depth (set on the difficulty screen).
+    private var chosenDepth = 3
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        requestHighRefreshRate()
+        sound = SoundFx()
+
+        val root = FrameLayout(this)
+        glView = ChessGLSurfaceView(this, this)
+        root.addView(glView, FrameLayout.LayoutParams(MATCH, MATCH))
+
+        buildHud(root)
+        homeOverlay = buildHome()
+        modeOverlay = buildModeSelect()
+        difficultyOverlay = buildDifficultySelect()
+        colorOverlay = buildColorSelect()
+        root.addView(homeOverlay, FrameLayout.LayoutParams(MATCH, MATCH))
+        root.addView(modeOverlay, FrameLayout.LayoutParams(MATCH, MATCH))
+        root.addView(difficultyOverlay, FrameLayout.LayoutParams(MATCH, MATCH))
+        root.addView(colorOverlay, FrameLayout.LayoutParams(MATCH, MATCH))
+        modeOverlay.visibility = View.GONE
+        difficultyOverlay.visibility = View.GONE
+        colorOverlay.visibility = View.GONE
+
+        setContentView(root)
+    }
+
+    // ----------------------------------------------------------- HUD building
+
+    private fun buildHud(root: FrameLayout) {
+        status = TextView(this).apply {
+            textSize = 20f
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            setShadowLayer(8f, 0f, 2f, Color.BLACK)
+            visibility = View.GONE
+        }
+        root.addView(status, FrameLayout.LayoutParams(MATCH, WRAP).apply {
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            topMargin = dp(26)
+        })
+
+        material = TextView(this).apply {
+            textSize = 14f
+            setTextColor(Color.parseColor("#FFD54F"))
+            gravity = Gravity.CENTER
+            setShadowLayer(6f, 0f, 2f, Color.BLACK)
+            visibility = View.GONE
+        }
+        root.addView(material, FrameLayout.LayoutParams(MATCH, WRAP).apply {
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            topMargin = dp(58)
+        })
+
+        legend = TextView(this).apply {
+            textSize = 11f
+            gravity = Gravity.CENTER
+            setShadowLayer(5f, 0f, 1f, Color.BLACK)
+            setLineSpacing(dp(2).toFloat(), 1f)
+            text = buildLegendText()
+            visibility = View.GONE
+        }
+        root.addView(legend, FrameLayout.LayoutParams(MATCH, WRAP).apply {
+            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            bottomMargin = dp(2)
+        })
+
+        exitBtn = pillButton("✕ 退出", "#EF5350", "#C62828").apply {
+            textSize = 14f
+            setPadding(dp(20), dp(10), dp(20), dp(10))
+            visibility = View.GONE
+            setOnClickListener {
+                sound.play(SoundFx.Type.CLICK)
+                glView.postExitToHome()
+            }
+        }
+        root.addView(exitBtn, FrameLayout.LayoutParams(WRAP, WRAP).apply {
+            gravity = Gravity.TOP or Gravity.END
+            topMargin = dp(20); marginEnd = dp(16)
+        })
+
+        undoBtn = pillButton("↶ 悔棋", "#7E57C2", "#4527A0").apply {
+            textSize = 14f
+            setPadding(dp(20), dp(12), dp(20), dp(12))
+            visibility = View.GONE
+            isEnabled = false
+            alpha = 0.4f
+            setOnClickListener {
+                sound.play(SoundFx.Type.CLICK)
+                glView.postUndo()
+            }
+        }
+        root.addView(undoBtn, FrameLayout.LayoutParams(WRAP, WRAP).apply {
+            gravity = Gravity.BOTTOM or Gravity.START
+            bottomMargin = dp(34); marginStart = dp(20)
+        })
+
+        viewBtn = pillButton("切换视角", "#26A69A", "#00695C").apply {
+            textSize = 14f
+            setPadding(dp(20), dp(12), dp(20), dp(12))
+            visibility = View.GONE
+            setOnClickListener {
+                sound.play(SoundFx.Type.CLICK)
+                glView.postToggleView()
+            }
+        }
+        root.addView(viewBtn, FrameLayout.LayoutParams(WRAP, WRAP).apply {
+            gravity = Gravity.BOTTOM or Gravity.START
+            bottomMargin = dp(92); marginStart = dp(20)
+        })
+
+        newGameBtn = pillButton("重新开始", "#FFA726", "#EF6C00").apply {
+            textSize = 14f
+            setPadding(dp(20), dp(12), dp(20), dp(12))
+            visibility = View.GONE
+            setOnClickListener {
+                sound.play(SoundFx.Type.CLICK)
+                glView.postNewGame()
+            }
+        }
+        root.addView(newGameBtn, FrameLayout.LayoutParams(WRAP, WRAP).apply {
+            gravity = Gravity.BOTTOM or Gravity.END
+            bottomMargin = dp(34); marginEnd = dp(20)
+        })
+    }
+
+    private fun setHudVisible(visible: Boolean) {
+        for (v in listOf(status, material, legend, exitBtn, viewBtn, undoBtn, newGameBtn)) {
+            if (visible) fadeIn(v) else v.visibility = View.GONE
+        }
+        if (visible) {
+            undoBtn.isEnabled = false
+            undoBtn.alpha = 0.4f
+        }
+    }
+
+    // -------------------------------------------------------- overlay building
+
+    private fun buildHome(): FrameLayout {
+        val f = FrameLayout(this)
+
+        val title = TextView(this).apply {
+            text = "立体国际象棋"
+            textSize = 36f
+            setTextColor(Color.WHITE)
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setShadowLayer(14f, 0f, 4f, Color.BLACK)
+        }
+        f.addView(title, FrameLayout.LayoutParams(MATCH, WRAP).apply {
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            topMargin = dp(84)
+        })
+
+        val subtitle = TextView(this).apply {
+            text = "3D · 实时光影 · 双人 / 人机"
+            textSize = 15f
+            setTextColor(Color.parseColor("#E0E0E0"))
+            gravity = Gravity.CENTER
+            setShadowLayer(8f, 0f, 2f, Color.BLACK)
+        }
+        f.addView(subtitle, FrameLayout.LayoutParams(MATCH, WRAP).apply {
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            topMargin = dp(140)
+        })
+
+        val start = pillButton("开 始", "#66BB6A", "#2E7D32").apply {
+            textSize = 22f
+            setPadding(dp(56), dp(16), dp(56), dp(16))
+            setOnClickListener {
+                sound.play(SoundFx.Type.CLICK)
+                fadeOut(homeOverlay) { fadeIn(modeOverlay) }
+            }
+        }
+        f.addView(start, FrameLayout.LayoutParams(WRAP, WRAP).apply {
+            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            bottomMargin = dp(96)
+        })
+
+        return f
+    }
+
+    private fun buildModeSelect(): FrameLayout {
+        val f = FrameLayout(this)
+        val panel = panel()
+
+        panel.addView(heading("选择对战模式"))
+        panel.addView(spacer(dp(22)))
+        panel.addView(bigChoice("双人对战", "同一台手机轮流走子", "#42A5F5", "#1565C0") {
+            sound.play(SoundFx.Type.CLICK)
+            startMatch(ChessRenderer.Mode.TWO_PLAYER, PieceColor.BLACK)
+        })
+        panel.addView(spacer(dp(14)))
+        panel.addView(bigChoice("人机对战", "挑战内置 AI 对手", "#66BB6A", "#2E7D32") {
+            sound.play(SoundFx.Type.CLICK)
+            fadeOut(modeOverlay) { fadeIn(difficultyOverlay) }
+        })
+        panel.addView(spacer(dp(18)))
+        panel.addView(backLink("← 返回") {
+            sound.play(SoundFx.Type.CLICK)
+            fadeOut(modeOverlay) { fadeIn(homeOverlay) }
+        })
+
+        f.addView(panel, centerPanelParams())
+        return f
+    }
+
+    private fun buildDifficultySelect(): FrameLayout {
+        val f = FrameLayout(this)
+        val panel = panel()
+
+        panel.addView(heading("选择 AI 难度"))
+        panel.addView(spacer(dp(22)))
+        panel.addView(bigChoice("简单", "AI 思考较浅，适合新手", "#66BB6A", "#2E7D32") {
+            sound.play(SoundFx.Type.CLICK)
+            chosenDepth = 2
+            fadeOut(difficultyOverlay) { fadeIn(colorOverlay) }
+        })
+        panel.addView(spacer(dp(14)))
+        panel.addView(bigChoice("普通", "均衡的对手", "#42A5F5", "#1565C0") {
+            sound.play(SoundFx.Type.CLICK)
+            chosenDepth = 3
+            fadeOut(difficultyOverlay) { fadeIn(colorOverlay) }
+        })
+        panel.addView(spacer(dp(14)))
+        panel.addView(bigChoice("困难", "AI 思考更深，更具挑战", "#EF5350", "#C62828") {
+            sound.play(SoundFx.Type.CLICK)
+            chosenDepth = 4
+            fadeOut(difficultyOverlay) { fadeIn(colorOverlay) }
+        })
+        panel.addView(spacer(dp(18)))
+        panel.addView(backLink("← 返回") {
+            sound.play(SoundFx.Type.CLICK)
+            fadeOut(difficultyOverlay) { fadeIn(modeOverlay) }
+        })
+
+        f.addView(panel, centerPanelParams())
+        return f
+    }
+
+    private fun buildColorSelect(): FrameLayout {
+        val f = FrameLayout(this)
+        val panel = panel()
+
+        panel.addView(heading("选择你的棋色"))
+        panel.addView(spacer(dp(22)))
+        panel.addView(bigChoice("执白 · 先手", "你先走，AI 执黑", "#FAFAFA", "#BDBDBD", Color.parseColor("#212121")) {
+            sound.play(SoundFx.Type.CLICK)
+            startMatch(ChessRenderer.Mode.VS_AI, PieceColor.BLACK)
+        })
+        panel.addView(spacer(dp(14)))
+        panel.addView(bigChoice("执黑 · 后手", "AI 先走，你执黑", "#455A64", "#263238") {
+            sound.play(SoundFx.Type.CLICK)
+            startMatch(ChessRenderer.Mode.VS_AI, PieceColor.WHITE)
+        })
+        panel.addView(spacer(dp(18)))
+        panel.addView(backLink("← 返回") {
+            sound.play(SoundFx.Type.CLICK)
+            fadeOut(colorOverlay) { fadeIn(difficultyOverlay) }
+        })
+
+        f.addView(panel, centerPanelParams())
+        return f
+    }
+
+    private fun startMatch(mode: ChessRenderer.Mode, aiColor: PieceColor) {
+        val current = when {
+            modeOverlay.visibility == View.VISIBLE -> modeOverlay
+            colorOverlay.visibility == View.VISIBLE -> colorOverlay
+            else -> difficultyOverlay
+        }
+        fadeOut(current)
+        val depth = if (mode == ChessRenderer.Mode.TWO_PLAYER) 3 else chosenDepth
+        glView.postBeginGame(mode, aiColor, depth)
+    }
+
+    // ----------------------------------------------------- renderer callbacks
+
+    override fun onStatus(s: GameStatus, turn: PieceColor) = runOnUiThread { updateStatus(s, turn) }
+
+    override fun onGameStarted() = runOnUiThread { setHudVisible(true) }
+
+    override fun onReturnedHome() = runOnUiThread {
+        setHudVisible(false)
+        modeOverlay.visibility = View.GONE
+        difficultyOverlay.visibility = View.GONE
+        colorOverlay.visibility = View.GONE
+        fadeIn(homeOverlay)
+    }
+
+    override fun onSound(type: SoundFx.Type) {
+        sound.play(type)
+    }
+
+    override fun onMaterial(whiteMinusBlack: Int) = runOnUiThread {
+        material.text = when {
+            whiteMinusBlack > 0 -> "白方领先 +$whiteMinusBlack"
+            whiteMinusBlack < 0 -> "黑方领先 +${-whiteMinusBlack}"
+            else -> "子力均势"
+        }
+    }
+
+    override fun onCanUndo(canUndo: Boolean) = runOnUiThread {
+        undoBtn.isEnabled = canUndo
+        undoBtn.animate().alpha(if (canUndo) 1f else 0.4f).setDuration(160).start()
+    }
+
+    override fun onNeedPromotion(apply: (PieceType) -> Unit) = runOnUiThread {
+        val labels = arrayOf("后 ♛", "车 ♜", "象 ♝", "马 ♞")
+        val types = arrayOf(PieceType.QUEEN, PieceType.ROOK, PieceType.BISHOP, PieceType.KNIGHT)
+        AlertDialog.Builder(this)
+            .setTitle("升变为")
+            .setCancelable(false)
+            .setItems(labels) { _, which -> apply(types[which]) }
+            .show()
+    }
+
+    private fun updateStatus(s: GameStatus, turn: PieceColor) {
+        val side = if (turn == PieceColor.WHITE) "白方" else "黑方"
+        status.text = when (s) {
+            GameStatus.ONGOING -> "$side 走棋"
+            GameStatus.CHECK -> "$side 被将军！"
+            GameStatus.CHECKMATE -> {
+                val winner = if (turn == PieceColor.WHITE) "黑方" else "白方"
+                "将死！$winner 获胜"
+            }
+            GameStatus.STALEMATE -> "和棋（逼和）"
+        }
+    }
+
+    // ----------------------------------------------------- lifecycle / helpers
+
+    override fun onResume() { super.onResume(); glView.onResume() }
+    override fun onPause() { super.onPause(); glView.onPause() }
+
+    private fun fadeIn(v: View) {
+        v.alpha = 0f
+        v.visibility = View.VISIBLE
+        v.animate().alpha(1f).setDuration(320).start()
+    }
+
+    private fun fadeOut(v: View, then: (() -> Unit)? = null) {
+        v.animate().alpha(0f).setDuration(240).withEndAction {
+            v.visibility = View.GONE
+            then?.invoke()
+        }.start()
+    }
+
+    private fun requestHighRefreshRate() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val params = window.attributes
+            params.preferredRefreshRate = 120f
+            window.attributes = params
+        }
+    }
+
+    private fun panel(): LinearLayout = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        gravity = Gravity.CENTER_HORIZONTAL
+        setPadding(dp(26), dp(26), dp(26), dp(22))
+        background = GradientDrawable().apply {
+            cornerRadius = dp(24).toFloat()
+            setColor(Color.parseColor("#E61C1F26"))
+            setStroke(dp(1), Color.parseColor("#33FFFFFF"))
+        }
+    }
+
+    private fun centerPanelParams() = FrameLayout.LayoutParams(dp(300), WRAP).apply {
+        gravity = Gravity.CENTER
+    }
+
+    private fun heading(text: String) = TextView(this).apply {
+        this.text = text
+        textSize = 22f
+        setTextColor(Color.WHITE)
+        typeface = Typeface.DEFAULT_BOLD
+        gravity = Gravity.CENTER
+    }
+
+    private fun spacer(h: Int) = View(this).apply {
+        layoutParams = LinearLayout.LayoutParams(MATCH, h)
+    }
+
+    private fun backLink(text: String, onClick: () -> Unit) = TextView(this).apply {
+        this.text = text
+        textSize = 15f
+        setTextColor(Color.parseColor("#B0BEC5"))
+        gravity = Gravity.CENTER
+        setPadding(dp(8), dp(8), dp(8), dp(8))
+        setOnClickListener { onClick() }
+    }
+
+    /** A large two-line choice button used on the selection screens. */
+    private fun bigChoice(
+        title: String, subtitle: String, top: String, bottom: String,
+        textColor: Int = Color.WHITE, onClick: () -> Unit
+    ): LinearLayout {
+        val ll = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(dp(16), dp(16), dp(16), dp(16))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(18).toFloat()
+                colors = intArrayOf(Color.parseColor(top), Color.parseColor(bottom))
+                orientation = GradientDrawable.Orientation.TOP_BOTTOM
+            }
+            isClickable = true
+            setOnClickListener { onClick() }
+        }
+        ll.addView(TextView(this).apply {
+            text = title
+            textSize = 20f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(textColor)
+            gravity = Gravity.CENTER
+        })
+        ll.addView(TextView(this).apply {
+            text = subtitle
+            textSize = 13f
+            setTextColor(textColor)
+            alpha = 0.85f
+            gravity = Gravity.CENTER
+        })
+        ll.layoutParams = LinearLayout.LayoutParams(MATCH, WRAP)
+        return ll
+    }
+
+    private fun pillButton(text: String, top: String, bottom: String): Button {
+        return Button(this).apply {
+            this.text = text
+            textSize = 18f
+            setTextColor(Color.WHITE)
+            isAllCaps = false
+            setPadding(dp(36), dp(14), dp(36), dp(14))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(28).toFloat()
+                colors = intArrayOf(Color.parseColor(top), Color.parseColor(bottom))
+                orientation = GradientDrawable.Orientation.TOP_BOTTOM
+            }
+            stateListAnimator = null
+        }
+    }
+
+    /** Color-coded identification key, matching the on-board rings in the renderer. */
+    private fun buildLegendText(): CharSequence {
+        val items = listOf(
+            "● 兵" to "#B8B8C2",
+            "● 马" to "#479EFF",
+            "● 象" to "#66D166",
+            "● 车" to "#FF9E38",
+            "● 后" to "#EB5CD9",
+            "● 王" to "#FFD640"
+        )
+        val sb = android.text.SpannableStringBuilder()
+        for ((i, it) in items.withIndex()) {
+            val (label, hex) = it
+            val start = sb.length
+            sb.append(label)
+            sb.setSpan(
+                android.text.style.ForegroundColorSpan(Color.parseColor(hex)),
+                start, sb.length, android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
+            if (i != items.lastIndex) {
+                val s2 = sb.length
+                sb.append("   ")
+                sb.setSpan(
+                    android.text.style.ForegroundColorSpan(Color.parseColor("#FFFFFF")),
+                    s2, sb.length, android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
+            }
+        }
+        return sb
+    }
+
+    private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
+
+    companion object {
+        private const val MATCH = ViewGroup.LayoutParams.MATCH_PARENT
+        private const val WRAP = ViewGroup.LayoutParams.WRAP_CONTENT
+    }
+}
