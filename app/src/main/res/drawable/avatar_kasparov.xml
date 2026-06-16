@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 卡斯帕罗夫: deep red bg + queen + lightning bolts -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillColor="#C62828" android:pathData="M54,54 m-50,0 a50,50 0 1 1 100,0 a50,50 0 1 1 -100,0 Z"/>
+    <path android:fillColor="#E53935" android:pathData="M54,54 m-42,0 a42,42 0 1 1 84,0 a42,42 0 1 1 -84,0 Z"/>
+    <group android:translateX="54" android:translateY="40" android:scaleX="1.35" android:scaleY="1.35">
+        <path android:fillColor="#FFEBEE" android:pathData="M-13,45 L13,45 L11,22 L-11,22 Z M-10,21 L10,21 Q11,18 9,15 L-9,15 Q-11,18 -10,21 Z"/>
+        <path android:fillColor="#FFEBEE" android:pathData="M-15,52 L15,52 L17,46 L-17,46 Z"/>
+        <path android:fillColor="#FFEBEE" android:pathData="M-11,14 L-9,3 L-4.5,10 L0,2 L4.5,10 L9,3 L11,14 Z"/>
+        <path android:fillColor="#FFEBEE" android:pathData="M-2.4,2 A2.4,2.4 0 1 1 2.4,2 A2.4,2.4 0 1 1 -2.4,2 Z"/>
+    </group>
+    <group android:translateX="24" android:translateY="74">
+        <path android:fillColor="#FFEBEE" android:pathData="M0,-8 L3,-3 L9,-2 L5,2 L6,8 L0,5 L-6,8 L-5,2 L-9,-2 L-3,-3 Z"/>
+    </group>
+    <group android:translateX="80" android:translateY="30">
+        <path android:fillColor="#FFEBEE" android:pathData="M0,-6 L2,-2 L7,-1 L3.5,1.5 L4.5,6 L0,3.5 L-4.5,6 L-3.5,1.5 L-7,-1 L-2,-2 Z"/>
+    </group>
+</vector>

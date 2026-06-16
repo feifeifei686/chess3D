@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Luna: pink bg + bishop + diamond sparkle -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillColor="#EC407A" android:pathData="M54,54 m-50,0 a50,50 0 1 1 100,0 a50,50 0 1 1 -100,0 Z"/>
+    <path android:fillColor="#F06292" android:pathData="M54,54 m-42,0 a42,42 0 1 1 84,0 a42,42 0 1 1 -84,0 Z"/>
+    <group android:translateX="54" android:translateY="40" android:scaleX="1.35" android:scaleY="1.35">
+        <path android:fillColor="#880E4F" android:pathData="M-6,28 L6,28 L4,14 Q2,8 0,2 Q-2,8 -4,14 Z"/>
+        <path android:fillColor="#880E4F" android:pathData="M-10,29 L10,29 L12,33 L-12,33 Z"/>
+        <path android:fillColor="#880E4F" android:pathData="M-2.8,2 A2.8,2.8 0 1 1 2.8,2 A2.8,2.8 0 1 1 -2.8,2 Z"/>
+        <path android:fillColor="#880E4F" android:pathData="M-7,16 L7,16 L5,12 L-5,12 Z"/>
+    </group>
+    <group android:translateX="25" android:translateY="22">
+        <path android:fillColor="#FFF9C4" android:pathData="M0,-10 L2.5,-3 L10,-3 L4,1.5 L6,9 L0,4.5 L-6,9 L-4,1.5 L-10,-3 L-2.5,-3 Z"/>
+    </group>
+    <group android:translateX="80" android:translateY="78">
+        <path android:fillColor="#FFF9C4" android:pathData="M0,-5 L1.2,-1.5 L5,-1.5 L2,0.8 L3,4.5 L0,2.2 L-3,4.5 L-2,0.8 L-5,-1.5 L-1.2,-1.5 Z"/>
+    </group>
+</vector>

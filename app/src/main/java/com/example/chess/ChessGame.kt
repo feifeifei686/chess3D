@@ -143,6 +143,22 @@ class ChessGame {
     /** Is the side to move currently in check? */
     fun inCheck(): Boolean = isInCheck(board, turn)
 
+    /** Null move: just switch the turn and clear en passant. Used for null-move pruning. */
+    fun makeNullMove() {
+        turn = turn.opposite()
+        enPassant = null
+    }
+
+    /** True when the side to move has so few non-pawn pieces that zugzwang is a risk. */
+    fun isLikelyZugzwang(): Boolean {
+        var nonPawn = 0
+        for (r in 0 until 8) for (c in 0 until 8) {
+            val p = board[r][c] ?: continue
+            if (p.color == turn && p.type != PieceType.PAWN) nonPawn++
+        }
+        return nonPawn <= 2
+    }
+
     /**
      * Squares of the enemy pieces that are currently giving check to the side to
      * move. Empty when the side to move is not in check. Used by the UI to point

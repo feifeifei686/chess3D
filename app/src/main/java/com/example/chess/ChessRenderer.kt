@@ -198,6 +198,19 @@ class ChessRenderer(private val callbacks: Callbacks) : GLSurfaceView.Renderer {
     private var hintFromR = -1; private var hintFromC = -1
     private var hintToR = -1;   private var hintToC = -1
     private var hintStartNs = 0L
+    private var hintComputeStartNs = 0L
+
+    // --- dialogue system ---
+    private var lastDialogTimeNs = 0L
+    private var idleDialogCount = 0
+    private var idleCheckReady = false
+    private val IDLE_DIALOG_FIRST_NS = 10_000_000_000L   // first idle at 10 s
+    private val IDLE_DIALOG_REPEAT_NS = 15_000_000_000L  // subsequent idle at 15 s
+    private val MIN_DIALOG_GAP_NS = 1_500_000_000L       // min gap between any two bubbles
+
+    // --- phase tracking ---
+    private var moveCount = 0
+    private var lastPhaseTrigger: DialogTrigger? = null
 
     private var nowNs = 0L
 
@@ -258,9 +271,14 @@ class ChessRenderer(private val callbacks: Callbacks) : GLSurfaceView.Renderer {
 
     override fun onDrawFrame(gl: GL10?) = safely {
         nowNs = System.nanoTime()
+        // Safety: if a hint computation hangs, reset the flag after 8 seconds.
+        if (hintThinking && hintComputeStartNs > 0 && (nowNs - hintComputeStartNs) > 8_000_000_000L) {
+            hintThinking = false; hintComputeStartNs = 0L
+        }
         updateCamera()
         updateAnim()
         updateFlyers()
+        checkIdleDialog()
 
         Matrix.setLookAtM(view, 0, camEye[0], camEye[1], camEye[2], target[0], target[1], target[2], camUp[0], camUp[1], camUp[2])
         Matrix.multiplyMM(vp, 0, proj, 0, view, 0)
@@ -647,19 +665,32 @@ class ChessRenderer(private val callbacks: Callbacks) : GLSurfaceView.Renderer {
             }
             callbacks.onStatus(game.status, game.turn)
             emitMeta()
-            // AI move reaction dialog — fire after the AI's move animation completes.
-            if (mode == Mode.VS_AI && game.turn != aiColor) {
-                val lastLog = moveLog.lastOrNull()
-                if (lastLog != null) {
-                    val char = Characters.byId(aiCharacterId)
-                    if (char != null) {
-                        val trigger = DialogManager.triggerForMove(lastLog.move, game)
+
+            // --- dialogue after a move completes ---
+            val lastLog = moveLog.lastOrNull()
+            val char = if (mode == Mode.VS_AI) Characters.byId(aiCharacterId) else null
+
+            if (char != null && lastLog != null && canShowDialog()) {
+                if (game.turn != aiColor) {
+                    // AI just moved — show move-triggered dialogue
+                    val trigger = triggerFromLog(lastLog)
+                    val desc = DialogManager.moveDesc(lastLog.move, game)
+                    showDialog(DialogManager.generate(char, trigger, desc))
+                } else if (animQueue.isEmpty()) {
+                    // Player just moved — react to capture / check
+                    val trigger = triggerFromLog(lastLog)
+                    if (trigger == DialogTrigger.MOVE_CAPTURE || trigger == DialogTrigger.MOVE_CHECK) {
+                        val react = if (trigger == DialogTrigger.MOVE_CAPTURE)
+                            DialogTrigger.REACT_CAPTURE else DialogTrigger.REACT_CHECK
                         val desc = DialogManager.moveDesc(lastLog.move, game)
-                        val text = DialogManager.generate(char, trigger, desc)
-                        callbacks.onAIDialog(text, 4000)
+                        showDialog(DialogManager.generate(char, react, desc))
                     }
                 }
             }
+
+            // Phase-transition dialogue
+            if (char != null && canShowDialog()) checkPhaseDialog(char)
+
             maybeTriggerAI()
         }
     }
@@ -695,6 +726,8 @@ class ChessRenderer(private val callbacks: Callbacks) : GLSurfaceView.Renderer {
         phase = Phase.TO_GAME
         startCam(gameOverheadEye, gameUp, 1_700_000_000L) {
             phase = Phase.PLAYING
+            moveCount = 0
+            lastPhaseTrigger = null
             callbacks.onGameStarted()
             callbacks.onStatus(game.status, game.turn)
             emitMeta()
@@ -703,6 +736,7 @@ class ChessRenderer(private val callbacks: Callbacks) : GLSurfaceView.Renderer {
                 val char = Characters.byId(aiCharacterId)
                 if (char != null) {
                     callbacks.onAIDialog(DialogManager.generate(char, DialogTrigger.GREETING, null), 3000)
+                    lastDialogTimeNs = nowNs
                 }
             }
             maybeTriggerAI()
@@ -751,6 +785,8 @@ class ChessRenderer(private val callbacks: Callbacks) : GLSurfaceView.Renderer {
             homers.clear()
             aiThinking = false
             evalHistory.clear()
+            moveCount = 0
+            lastPhaseTrigger = null
             callbacks.onStatus(game.status, game.turn)
             emitMeta()
             maybeTriggerAI()
@@ -897,6 +933,11 @@ class ChessRenderer(private val callbacks: Callbacks) : GLSurfaceView.Renderer {
         startHand(movers.first(), startNs, durNs)
         selR = -1; selC = -1
         legalMoves = emptyList()
+        // Reset idle dialog timer for the opponent's (AI's) next turn.
+        lastDialogTimeNs = System.nanoTime()
+        idleDialogCount = 0
+        idleCheckReady = true
+        moveCount++
     }
 
     /** Park a grabbing hand over the primary mover for the duration of its slide. */
@@ -973,6 +1014,59 @@ class ChessRenderer(private val callbacks: Callbacks) : GLSurfaceView.Renderer {
         startHand(movers.first(), startNs, durNs)
     }
 
+    /** Fire an idle dialog when the player is thinking for too long. Repeats. */
+    private fun checkIdleDialog() {
+        if (mode != Mode.VS_AI || phase != Phase.PLAYING || anim != null || homing) return
+        if (game.turn == aiColor) return
+        if (!idleCheckReady) return
+        if (game.status != GameStatus.ONGOING && game.status != GameStatus.CHECK) return
+
+        val interval = if (idleDialogCount == 0) IDLE_DIALOG_FIRST_NS else IDLE_DIALOG_REPEAT_NS
+        if (nowNs - lastDialogTimeNs < interval) return
+        if (!canShowDialog()) return
+
+        idleDialogCount++
+        val char = Characters.byId(aiCharacterId) ?: return
+        showDialog(DialogManager.generate(char, DialogTrigger.IDLE, null))
+    }
+
+    /** True when enough time has passed since the last dialogue bubble. */
+    private fun canShowDialog(): Boolean = nowNs - lastDialogTimeNs >= MIN_DIALOG_GAP_NS
+
+    /** Show a dialogue bubble and reset timing state. */
+    private fun showDialog(text: String) {
+        callbacks.onAIDialog(text, 3000)
+        lastDialogTimeNs = nowNs
+        idleDialogCount = 0
+    }
+
+    /** Determine what kind of move was just made (using move-log data so we
+     *  avoid the post-move board-state ambiguity). */
+    private fun triggerFromLog(log: LoggedMove): DialogTrigger = when {
+        log.move.isCastle -> DialogTrigger.MOVE_CASTLE
+        log.move.isEnPassant || log.captured != null -> DialogTrigger.MOVE_CAPTURE
+        log.move.promotion != null -> DialogTrigger.MOVE_PROMOTE
+        game.status == GameStatus.CHECK || game.status == GameStatus.CHECKMATE -> DialogTrigger.MOVE_CHECK
+        else -> DialogTrigger.MOVE_GENERIC
+    }
+
+    /** Fire a phase-transition dialogue once when the move count crosses a threshold. */
+    private fun checkPhaseDialog(char: CharacterDef) {
+        val phaseTrigger = when {
+            moveCount in 4..7 && lastPhaseTrigger != DialogTrigger.PHASE_OPENING ->
+                DialogTrigger.PHASE_OPENING
+            moveCount in 14..18 && lastPhaseTrigger != DialogTrigger.PHASE_MIDDLEGAME ->
+                DialogTrigger.PHASE_MIDDLEGAME
+            moveCount in 35..45 && lastPhaseTrigger != DialogTrigger.PHASE_ENDGAME ->
+                DialogTrigger.PHASE_ENDGAME
+            else -> null
+        }
+        if (phaseTrigger != null) {
+            lastPhaseTrigger = phaseTrigger
+            showDialog(DialogManager.generate(char, phaseTrigger, null))
+        }
+    }
+
     /** Drop both kinds of on-board hint (check-escape and best-move). */
     private fun clearHints() {
         checkTapCount = 0
@@ -983,24 +1077,32 @@ class ChessRenderer(private val callbacks: Callbacks) : GLSurfaceView.Renderer {
 
     /** Compute the strongest move in the background and flash it on the board. */
     fun requestHint() = safely {
-        if (phase != Phase.PLAYING || anim != null || busy || aiThinking || hintThinking || flyers.isNotEmpty() || homing) return@safely
+        if (phase != Phase.PLAYING || anim != null || busy || aiThinking || hintThinking || homing) return@safely
         if (mode == Mode.VS_AI && game.turn == aiColor) return@safely
         if (game.status != GameStatus.ONGOING && game.status != GameStatus.CHECK) return@safely
         hintThinking = true
+        hintComputeStartNs = System.nanoTime()
+        // Use a deeper search for hints so they are useful even against weak-AI opponents.
+        val searchDepth = maxOf(aiDepth + 2, 5)
         val snapshot = game.snapshot()
         Thread {
-            val mv = try { ChessAI.bestMove(snapshot, aiDepth) } catch (t: Throwable) { null }
-            glView?.queueEvent {
-                hintThinking = false
-                // Drop the hint if the board moved on while we were thinking.
-                val stillValid = mv != null && phase == Phase.PLAYING &&
-                    game.board[mv.fromR][mv.fromC]?.color == game.turn
-                if (stillValid && mv != null) {
-                    hintFromR = mv.fromR; hintFromC = mv.fromC
-                    hintToR = mv.toR;     hintToC = mv.toC
-                    hintStartNs = System.nanoTime()
-                    callbacks.onSound(SoundFx.Type.CLICK)
+            try {
+                val mv = ChessAI.bestMove(snapshot, searchDepth, 5000)
+                glView?.queueEvent {
+                    hintThinking = false
+                    hintComputeStartNs = 0L
+                    if (mv != null && phase == Phase.PLAYING &&
+                        game.board[mv.fromR][mv.fromC]?.color == game.turn
+                    ) {
+                        hintFromR = mv.fromR; hintFromC = mv.fromC
+                        hintToR = mv.toR;     hintToC = mv.toC
+                        hintStartNs = System.nanoTime()
+                        callbacks.onSound(SoundFx.Type.CLICK)
+                    }
                 }
+            } catch (t: Throwable) {
+                Log.e(TAG, "hint computation failed", t)
+                glView?.queueEvent { hintThinking = false; hintComputeStartNs = 0L }
             }
         }.apply { isDaemon = true }.start()
     }
@@ -1015,12 +1117,12 @@ class ChessRenderer(private val callbacks: Callbacks) : GLSurfaceView.Renderer {
         // Show a "thinking" dialog bubble.
         val char = Characters.byId(aiCharacterId)
         if (char != null) {
-            callbacks.onAIDialog(DialogManager.generate(char, DialogTrigger.THINKING, null), 2000)
+            callbacks.onAIDialog(DialogManager.generate(char, DialogTrigger.THINKING, null), 3000)
         }
         val snapshot = game.snapshot()
         val depth = aiDepth
         Thread {
-            val mv = try { ChessAI.bestMove(snapshot, depth) } catch (t: Throwable) { null }
+            val mv = try { ChessAI.bestMove(snapshot, depth, 5000) } catch (t: Throwable) { null }
             glView?.queueEvent {
                 aiThinking = false
                 callbacks.onAIThinking(false)

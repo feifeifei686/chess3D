@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 侯逸凡: rose gold bg + queen + lotus petals -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillColor="#D4A574" android:pathData="M54,54 m-50,0 a50,50 0 1 1 100,0 a50,50 0 1 1 -100,0 Z"/>
+    <path android:fillColor="#E8C9A0" android:pathData="M54,54 m-42,0 a42,42 0 1 1 84,0 a42,42 0 1 1 -84,0 Z"/>
+    <group android:translateX="54" android:translateY="42" android:scaleX="1.25" android:scaleY="1.25">
+        <path android:fillColor="#5D4037" android:pathData="M-13,45 L13,45 L11,22 L-11,22 Z M-10,21 L10,21 Q11,18 9,15 L-9,15 Q-11,18 -10,21 Z"/>
+        <path android:fillColor="#5D4037" android:pathData="M-15,52 L15,52 L17,46 L-17,46 Z"/>
+        <path android:fillColor="#5D4037" android:pathData="M-11,14 L-9,3 L-4.5,10 L0,2 L4.5,10 L9,3 L11,14 Z"/>
+        <path android:fillColor="#5D4037" android:pathData="M-2.4,2 A2.4,2.4 0 1 1 2.4,2 A2.4,2.4 0 1 1 -2.4,2 Z"/>
+    </group>
+    <group android:translateX="54" android:translateY="18">
+        <path android:fillColor="#00000000" android:strokeColor="#8D6E63" android:strokeWidth="0.8"
+            android:pathData="M0,-12 Q8,-8 12,0 Q8,8 0,12 Q-8,8 -12,0 Q-8,-8 0,-12 Z"/>
+        <path android:fillColor="#00000000" android:strokeColor="#8D6E63" android:strokeWidth="0.6"
+            android:pathData="M0,-14 Q10,-9 14,0 Q10,9 0,14 Q-10,9 -14,0 Q-10,-9 0,-14 Z"/>
+    </group>
+</vector>

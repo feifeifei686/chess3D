@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Phoenix: teal bg + king + mysterious halo -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillColor="#00BCD4" android:pathData="M54,54 m-50,0 a50,50 0 1 1 100,0 a50,50 0 1 1 -100,0 Z"/>
+    <path android:fillColor="#26C6DA" android:pathData="M54,54 m-42,0 a42,42 0 1 1 84,0 a42,42 0 1 1 -84,0 Z"/>
+    <path android:fillColor="#00000000" android:strokeColor="#004D40" android:strokeWidth="0.7"
+        android:pathData="M54,54 m-32,0 a32,32 0 1 1 64,0 a32,32 0 1 1 -64,0 Z M54,54 m-22,0 a22,22 0 1 1 44,0 a22,22 0 1 1 -44,0 Z"/>
+    <group android:translateX="54" android:translateY="38" android:scaleX="1.35" android:scaleY="1.35">
+        <path android:fillColor="#004D40" android:pathData="M-12,20 L12,20 L10,4 L-10,4 Z"/>
+        <path android:fillColor="#004D40" android:pathData="M-15,30 L15,30 L17,25 L-17,25 Z"/>
+        <path android:fillColor="#004D40" android:pathData="M-10,4 L-10,-4 L-5,2 L0,-6 L5,2 L10,-4 L10,4 Z"/>
+        <path android:fillColor="#004D40" android:pathData="M-1.5,-10 L1.5,-10 L1.5,-6 L5.5,-6 L5.5,-3 L1.5,-3 L1.5,0 L-1.5,0 L-1.5,-3 L-5.5,-3 L-5.5,-6 L-1.5,-6 Z"/>
+    </group>
+    <path android:fillColor="#00000000" android:strokeColor="#80DEEA" android:strokeWidth="1.2"
+        android:pathData="M54,8 L54,4 M54,100 L54,104 M8,54 L4,54 M100,54 L104,54 M24,24 L18,18 M84,84 L90,90 M84,24 L90,18 M24,84 L18,90"/>
+</vector>
