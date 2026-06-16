@@ -30,6 +30,8 @@ class ChessRenderer(private val callbacks: Callbacks) : GLSurfaceView.Renderer {
         fun onSound(type: SoundFx.Type)
         fun onMaterial(whiteMinusBlack: Int)
         fun onCanUndo(canUndo: Boolean)
+        fun onEvalUpdate(blackWinRate: Float)
+        fun onEvalHistory(history: List<Float>)
     }
 
     enum class Mode { TWO_PLAYER, VS_AI }
@@ -174,6 +176,10 @@ class ChessRenderer(private val callbacks: Callbacks) : GLSurfaceView.Renderer {
 
     private var homing = false
     private val homers = ArrayList<Flyer>()
+
+    // Win-rate history (Black's perspective) for the post-game curve.
+    private val evalHistory = ArrayList<Float>()
+    private var evalPending = false
 
     // --- "who is checking you" shake reminder ---
     private val shakeSquares = ArrayList<Pair<Int, Int>>()
@@ -630,7 +636,10 @@ class ChessRenderer(private val callbacks: Callbacks) : GLSurfaceView.Renderer {
             }
             when (game.status) {
                 GameStatus.CHECK -> callbacks.onSound(SoundFx.Type.CHECK)
-                GameStatus.CHECKMATE, GameStatus.STALEMATE -> callbacks.onSound(SoundFx.Type.GAMEOVER)
+                GameStatus.CHECKMATE, GameStatus.STALEMATE -> {
+                    callbacks.onSound(SoundFx.Type.GAMEOVER)
+                    callbacks.onEvalHistory(evalHistory.toList())
+                }
                 else -> {}
             }
             callbacks.onStatus(game.status, game.turn)
@@ -664,6 +673,7 @@ class ChessRenderer(private val callbacks: Callbacks) : GLSurfaceView.Renderer {
         clearTransient()
         graveyard.clear()
         moveLog.clear()
+        evalHistory.clear()
         gameViewIndex = 0
         phase = Phase.TO_GAME
         startCam(gameOverheadEye, gameUp, 1_700_000_000L) {
@@ -689,6 +699,7 @@ class ChessRenderer(private val callbacks: Callbacks) : GLSurfaceView.Renderer {
             homing = false
             homers.clear()
             aiThinking = false
+            evalHistory.clear()
             callbacks.onReturnedHome()
         }
     }
@@ -715,6 +726,7 @@ class ChessRenderer(private val callbacks: Callbacks) : GLSurfaceView.Renderer {
             homing = false
             homers.clear()
             aiThinking = false
+            evalHistory.clear()
             callbacks.onStatus(game.status, game.turn)
             emitMeta()
             maybeTriggerAI()
@@ -819,6 +831,23 @@ class ChessRenderer(private val callbacks: Callbacks) : GLSurfaceView.Renderer {
 
         callbacks.onSound(if (captured != null) SoundFx.Type.CAPTURE else SoundFx.Type.MOVE)
         game.makeMove(move)
+
+        // Compute win rate in the background after the board changes.
+        if (!evalPending) {
+            evalPending = true
+            val snap = game.snapshot()
+            Thread {
+                val cp = ChessAI.evaluateFromBlackPerspective(snap)
+                val wr = ChessAI.evalToWinRate(cp)
+                glView?.queueEvent {
+                    evalPending = false
+                    if (phase == Phase.PLAYING) {
+                        evalHistory.add(wr)
+                        callbacks.onEvalUpdate(wr)
+                    }
+                }
+            }.apply { isDaemon = true }.start()
+        }
 
         // Send the captured piece tumbling off the board into the graveyard.
         var rest: RestingPiece? = null

@@ -1,6 +1,12 @@
 package com.example.chess
 
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.DashPathEffect
+import android.graphics.LinearGradient
+import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.Shader
 import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
@@ -42,6 +48,11 @@ class MainActivity : AppCompatActivity(), ChessRenderer.Callbacks {
     private lateinit var victoryOverlay: FrameLayout
     private lateinit var victoryTitle: TextView
     private lateinit var victorySubtitle: TextView
+    private lateinit var curveOverlay: FrameLayout
+
+    // Win-rate display
+    private lateinit var winRateText: TextView
+    private var evalForCurve: List<Float> = emptyList()
 
     // Chosen AI search depth (set on the difficulty screen).
     private var chosenDepth = 3
@@ -69,15 +80,18 @@ class MainActivity : AppCompatActivity(), ChessRenderer.Callbacks {
         difficultyOverlay = buildDifficultySelect()
         colorOverlay = buildColorSelect()
         victoryOverlay = buildVictory()
+        curveOverlay = buildCurveOverlay()
         root.addView(homeOverlay, FrameLayout.LayoutParams(MATCH, MATCH))
         root.addView(modeOverlay, FrameLayout.LayoutParams(MATCH, MATCH))
         root.addView(difficultyOverlay, FrameLayout.LayoutParams(MATCH, MATCH))
         root.addView(colorOverlay, FrameLayout.LayoutParams(MATCH, MATCH))
         root.addView(victoryOverlay, FrameLayout.LayoutParams(MATCH, MATCH))
+        root.addView(curveOverlay, FrameLayout.LayoutParams(MATCH, MATCH))
         modeOverlay.visibility = View.GONE
         difficultyOverlay.visibility = View.GONE
         colorOverlay.visibility = View.GONE
         victoryOverlay.visibility = View.GONE
+        curveOverlay.visibility = View.GONE
 
         // Shift HUD controls out from under the system bars, using the real
         // device insets instead of guessing a fixed status-bar / nav-bar height.
@@ -87,6 +101,7 @@ class MainActivity : AppCompatActivity(), ChessRenderer.Callbacks {
 
             (status.layoutParams as FrameLayout.LayoutParams).topMargin = topBar + dp(2)
             (material.layoutParams as FrameLayout.LayoutParams).topMargin = topBar + dp(34)
+            (winRateText.layoutParams as FrameLayout.LayoutParams).topMargin = topBar + dp(6)
             (exitBtn.layoutParams as FrameLayout.LayoutParams).topMargin = topBar
 
             (undoBtn.layoutParams as FrameLayout.LayoutParams).bottomMargin = bottomBar + dp(10)
@@ -125,6 +140,17 @@ class MainActivity : AppCompatActivity(), ChessRenderer.Callbacks {
         root.addView(material, FrameLayout.LayoutParams(MATCH, WRAP).apply {
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
             topMargin = dp(58)
+        })
+
+        winRateText = TextView(this).apply {
+            textSize = 13f
+            setTextColor(Color.WHITE)
+            setShadowLayer(6f, 0f, 1f, Color.BLACK)
+            visibility = View.GONE
+        }
+        root.addView(winRateText, FrameLayout.LayoutParams(WRAP, WRAP).apply {
+            gravity = Gravity.TOP or Gravity.START
+            topMargin = dp(26); marginStart = dp(16)
         })
 
         exitBtn = pillButton("✕ 退出", "#EF5350", "#C62828").apply {
@@ -201,7 +227,7 @@ class MainActivity : AppCompatActivity(), ChessRenderer.Callbacks {
     }
 
     private fun setHudVisible(visible: Boolean) {
-        for (v in listOf(status, material, exitBtn, viewBtn, undoBtn, newGameBtn, hintBtn)) {
+        for (v in listOf(status, material, winRateText, exitBtn, viewBtn, undoBtn, newGameBtn, hintBtn)) {
             if (visible) fadeIn(v) else v.visibility = View.GONE
         }
         if (visible) {
@@ -380,6 +406,13 @@ class MainActivity : AppCompatActivity(), ChessRenderer.Callbacks {
         panel.addView(victorySubtitle)
         panel.addView(spacer(dp(26)))
 
+        panel.addView(pillButton("📈 胜率曲线", "#FFA726", "#E65100").apply {
+            setOnClickListener {
+                sound.play(SoundFx.Type.CLICK)
+                showCurve()
+            }
+        }, LinearLayout.LayoutParams(MATCH, WRAP))
+        panel.addView(spacer(dp(10)))
         panel.addView(pillButton("再来一局", "#66BB6A", "#2E7D32").apply {
             setOnClickListener {
                 sound.play(SoundFx.Type.CLICK)
@@ -449,9 +482,13 @@ class MainActivity : AppCompatActivity(), ChessRenderer.Callbacks {
 
     override fun onStatus(s: GameStatus, turn: PieceColor) = runOnUiThread { updateStatus(s, turn) }
 
-    override fun onGameStarted() = runOnUiThread { setHudVisible(true) }
+    override fun onGameStarted() = runOnUiThread {
+        evalForCurve = emptyList()
+        setHudVisible(true)
+    }
 
     override fun onReturnedHome() = runOnUiThread {
+        evalForCurve = emptyList()
         setHudVisible(false)
         modeOverlay.visibility = View.GONE
         difficultyOverlay.visibility = View.GONE
@@ -475,6 +512,24 @@ class MainActivity : AppCompatActivity(), ChessRenderer.Callbacks {
     override fun onCanUndo(canUndo: Boolean) = runOnUiThread {
         undoBtn.isEnabled = canUndo
         undoBtn.animate().alpha(if (canUndo) 1f else 0.4f).setDuration(160).start()
+    }
+
+    override fun onEvalUpdate(blackWinRate: Float) = runOnUiThread {
+        val black = blackWinRate.coerceIn(0f, 100f)
+        if (black >= 50.5f) {
+            winRateText.text = "黑 ${black.toInt()}%"
+            winRateText.setTextColor(Color.parseColor("#90CAF9"))
+        } else if (black <= 49.5f) {
+            winRateText.text = "白 ${(100 - black).toInt()}%"
+            winRateText.setTextColor(Color.parseColor("#FFCC80"))
+        } else {
+            winRateText.text = "均势"
+            winRateText.setTextColor(Color.WHITE)
+        }
+    }
+
+    override fun onEvalHistory(history: List<Float>) = runOnUiThread {
+        evalForCurve = history
     }
 
     override fun onNeedPromotion(apply: (PieceType) -> Unit) = runOnUiThread {
@@ -614,6 +669,169 @@ class MainActivity : AppCompatActivity(), ChessRenderer.Callbacks {
                 orientation = GradientDrawable.Orientation.TOP_BOTTOM
             }
             stateListAnimator = null
+        }
+    }
+
+    // ----------------------------------------------------- curve chart
+
+    private fun buildCurveOverlay(): FrameLayout {
+        val f = FrameLayout(this).apply {
+            background = ColorDrawable(Color.parseColor("#CC000000"))
+            isClickable = true
+        }
+
+        val curveView = CurveView(this)
+        f.addView(curveView, FrameLayout.LayoutParams(MATCH, MATCH).apply {
+            setMargins(dp(24), dp(80), dp(24), dp(80))
+        })
+
+        // Title
+        val title = TextView(this).apply {
+            text = "胜率曲线"
+            textSize = 22f
+            setTextColor(Color.WHITE)
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setShadowLayer(8f, 0f, 2f, Color.BLACK)
+        }
+        f.addView(title, FrameLayout.LayoutParams(WRAP, WRAP).apply {
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            topMargin = dp(36)
+        })
+
+        // Close button
+        f.addView(pillButton("✕ 关闭", "#78909C", "#455A64").apply {
+            textSize = 14f
+            setPadding(dp(24), dp(10), dp(24), dp(10))
+            setOnClickListener { hideCurve() }
+        }, FrameLayout.LayoutParams(WRAP, WRAP).apply {
+            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            bottomMargin = dp(32)
+        })
+
+        return f
+    }
+
+    private fun showCurve() {
+        if (evalForCurve.size < 2) return // need at least 2 points
+        val cv = curveOverlay.getChildAt(0) as? CurveView ?: return
+        cv.setData(evalForCurve)
+        curveOverlay.alpha = 0f
+        curveOverlay.visibility = View.VISIBLE
+        curveOverlay.animate().alpha(1f).setDuration(260).start()
+    }
+
+    private fun hideCurve() {
+        if (curveOverlay.visibility != View.VISIBLE) return
+        curveOverlay.animate().alpha(0f).setDuration(200).withEndAction {
+            curveOverlay.visibility = View.GONE
+        }.start()
+    }
+
+    /** Custom View that draws the Black-win-rate curve on a Canvas. */
+    private class CurveView(context: android.content.Context) : View(context) {
+        private var data: List<Float> = emptyList()
+
+        private val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#1A1C24")
+            style = Paint.Style.FILL
+        }
+        private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#FFD54F")
+            style = Paint.Style.STROKE
+            strokeWidth = 3f
+            strokeCap = Paint.Cap.ROUND
+        }
+        private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+        }
+        private val midPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#44FFFFFF")
+            style = Paint.Style.STROKE
+            strokeWidth = 1.5f
+            pathEffect = DashPathEffect(floatArrayOf(8f, 6f), 0f)
+        }
+        private val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#80FFFFFF")
+            textSize = 28f
+            textAlign = Paint.Align.CENTER
+        }
+        private val blackLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#90CAF9")
+            textSize = 26f
+            typeface = Typeface.DEFAULT_BOLD
+        }
+        private val whiteLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#FFCC80")
+            textSize = 26f
+            typeface = Typeface.DEFAULT_BOLD
+        }
+
+        fun setData(d: List<Float>) { data = d; invalidate() }
+
+        override fun onDraw(canvas: Canvas) {
+            super.onDraw(canvas)
+            if (data.size < 2) return
+
+            val w = width.toFloat()
+            val h = height.toFloat()
+            val padLeft = 60f; val padRight = 30f; val padTop = 50f; val padBot = 50f
+            val chartW = w - padLeft - padRight
+            val chartH = h - padTop - padBot
+
+            // Background
+            canvas.drawRoundRect(8f, 8f, w - 8f, h - 8f, 16f, 16f, bgPaint)
+
+            // Mid line (50%)
+            val midY = padTop + chartH * 0.5f
+            canvas.drawLine(padLeft, midY, padLeft + chartW, midY, midPaint)
+
+            // Top / bottom labels
+            canvas.drawText("黑 100%", padLeft - 10f, padTop + 22f, labelPaint)
+            canvas.drawText("白 100%", padLeft - 10f, padTop + chartH - 10f, labelPaint)
+            canvas.drawText("50%", padLeft - 10f, midY + 8f, labelPaint)
+
+            // Build the curve path.
+            val path = Path()
+            val n = data.size
+            for (i in 0 until n) {
+                val x = padLeft + (i.toFloat() / (n - 1)) * chartW
+                // data[i] = black win-rate 0-100 → map to chart: 0% = bottom, 100% = top
+                val y = padTop + (1f - data[i] / 100f) * chartH
+                if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+            }
+
+            // Filled area under the curve with a gradient.
+            val fillPath = Path(path)
+            fillPath.lineTo(padLeft + chartW, padTop + chartH)
+            fillPath.lineTo(padLeft, padTop + chartH)
+            fillPath.close()
+
+            fillPaint.shader = LinearGradient(
+                0f, padTop, 0f, padTop + chartH,
+                intArrayOf(Color.parseColor("#554242F5"), Color.parseColor("#5542A5F5"), Color.parseColor("#55B0BEC5")),
+                floatArrayOf(0f, 0.5f, 1f), Shader.TileMode.CLAMP
+            )
+            canvas.drawPath(fillPath, fillPaint)
+
+            // The curve line itself.
+            canvas.drawPath(path, linePaint)
+
+            // Side labels.
+            canvas.drawText("← 黑优", padLeft + chartW / 2, padTop - 16f, blackLabelPaint)
+            canvas.drawText("← 白优", padLeft + chartW / 2, padTop + chartH + 38f, whiteLabelPaint)
+
+            // X-axis step markers.
+            val stepPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.parseColor("#30FFFFFF")
+                textSize = 22f
+                textAlign = Paint.Align.CENTER
+            }
+            val step = if (n <= 20) 1 else n / 10
+            for (i in 0 until n step step) {
+                val x = padLeft + (i.toFloat() / (n - 1)) * chartW
+                canvas.drawText("${i + 1}", x, padTop + chartH + 34f, stepPaint)
+            }
         }
     }
 

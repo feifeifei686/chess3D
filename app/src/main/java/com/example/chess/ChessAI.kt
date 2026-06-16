@@ -10,6 +10,17 @@ object ChessAI {
     private const val INF = 1_000_000
     private const val MATE = 100_000
 
+    /** Static evaluation from Black's point of view (used for the win-rate curve). */
+    fun evaluateFromBlackPerspective(g: ChessGame): Int {
+        val score = evaluate(g) // from g.turn's perspective
+        return if (g.turn == PieceColor.BLACK) score else -score
+    }
+
+    /** Map centipawn evaluation to a 0-100 win-rate percentage via a logistic curve. */
+    fun evalToWinRate(cp: Int): Float {
+        return (100.0 / (1.0 + Math.exp(-cp / 400.0))).toFloat()
+    }
+
     fun bestMove(root: ChessGame, depth: Int): Move? {
         val moves = ordered(root)
         if (moves.isEmpty()) return null
