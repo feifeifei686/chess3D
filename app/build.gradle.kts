@@ -11,8 +11,8 @@ android {
         applicationId = "com.example.chess"
         minSdk = 24
         targetSdk = 34
-        versionCode = 2
-        versionName = "2.0"
+        versionCode = 5
+        versionName = "2.3"
     }
 
     buildTypes {
@@ -35,13 +35,26 @@ android {
         jvmTarget = "17"
     }
 
-    // Name every output APK with a clear "v2.0" suffix.
+    // Name every output APK with a clear "v2.3" suffix.
     applicationVariants.all {
         outputs.all {
             val output = this as com.android.build.gradle.internal.api.BaseVariantOutputImpl
-            output.outputFileName = "chess3d-${buildType.name}-v2.0.apk"
+            output.outputFileName = "chess3d-${buildType.name}-v2.3.apk"
         }
     }
+}
+
+// Archive every built release APK into <root>/apks/. The AGP output dir
+// (app/build/outputs/apk/release) is wiped on each build, so without this each
+// new version would erase the previous APK. apks/ lives outside build/ and is
+// never cleaned, so all versions accumulate there.
+tasks.register<Copy>("archiveReleaseApk") {
+    from(layout.buildDirectory.dir("outputs/apk/release"))
+    include("*.apk")
+    into(rootProject.layout.projectDirectory.dir("apks"))
+}
+afterEvaluate {
+    tasks.named("assembleRelease").configure { finalizedBy("archiveReleaseApk") }
 }
 
 dependencies {

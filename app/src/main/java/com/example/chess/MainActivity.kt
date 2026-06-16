@@ -2,12 +2,14 @@ package com.example.chess
 
 import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.animation.OvershootInterpolator
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
@@ -28,12 +30,16 @@ class MainActivity : AppCompatActivity(), ChessRenderer.Callbacks {
     private lateinit var viewBtn: Button
     private lateinit var undoBtn: Button
     private lateinit var newGameBtn: Button
+    private lateinit var hintBtn: Button
 
     // Full-screen overlays
     private lateinit var homeOverlay: FrameLayout
     private lateinit var modeOverlay: FrameLayout
     private lateinit var difficultyOverlay: FrameLayout
     private lateinit var colorOverlay: FrameLayout
+    private lateinit var victoryOverlay: FrameLayout
+    private lateinit var victoryTitle: TextView
+    private lateinit var victorySubtitle: TextView
 
     // Chosen AI search depth (set on the difficulty screen).
     private var chosenDepth = 3
@@ -52,13 +58,16 @@ class MainActivity : AppCompatActivity(), ChessRenderer.Callbacks {
         modeOverlay = buildModeSelect()
         difficultyOverlay = buildDifficultySelect()
         colorOverlay = buildColorSelect()
+        victoryOverlay = buildVictory()
         root.addView(homeOverlay, FrameLayout.LayoutParams(MATCH, MATCH))
         root.addView(modeOverlay, FrameLayout.LayoutParams(MATCH, MATCH))
         root.addView(difficultyOverlay, FrameLayout.LayoutParams(MATCH, MATCH))
         root.addView(colorOverlay, FrameLayout.LayoutParams(MATCH, MATCH))
+        root.addView(victoryOverlay, FrameLayout.LayoutParams(MATCH, MATCH))
         modeOverlay.visibility = View.GONE
         difficultyOverlay.visibility = View.GONE
         colorOverlay.visibility = View.GONE
+        victoryOverlay.visibility = View.GONE
 
         setContentView(root)
     }
@@ -147,6 +156,20 @@ class MainActivity : AppCompatActivity(), ChessRenderer.Callbacks {
             bottomMargin = dp(92); marginStart = dp(20)
         })
 
+        hintBtn = pillButton("💡 提示", "#FFCA28", "#F9A825").apply {
+            textSize = 14f
+            setPadding(dp(20), dp(12), dp(20), dp(12))
+            visibility = View.GONE
+            setOnClickListener {
+                sound.play(SoundFx.Type.CLICK)
+                glView.postHint()
+            }
+        }
+        root.addView(hintBtn, FrameLayout.LayoutParams(WRAP, WRAP).apply {
+            gravity = Gravity.BOTTOM or Gravity.START
+            bottomMargin = dp(150); marginStart = dp(20)
+        })
+
         newGameBtn = pillButton("重新开始", "#FFA726", "#EF6C00").apply {
             textSize = 14f
             setPadding(dp(20), dp(12), dp(20), dp(12))
@@ -163,7 +186,7 @@ class MainActivity : AppCompatActivity(), ChessRenderer.Callbacks {
     }
 
     private fun setHudVisible(visible: Boolean) {
-        for (v in listOf(status, material, legend, exitBtn, viewBtn, undoBtn, newGameBtn)) {
+        for (v in listOf(status, material, legend, exitBtn, viewBtn, undoBtn, newGameBtn, hintBtn)) {
             if (visible) fadeIn(v) else v.visibility = View.GONE
         }
         if (visible) {
@@ -301,6 +324,101 @@ class MainActivity : AppCompatActivity(), ChessRenderer.Callbacks {
         return f
     }
 
+    /** Full-screen end-of-game banner: who won (or a draw), with replay / home. */
+    private fun buildVictory(): FrameLayout {
+        val f = FrameLayout(this).apply {
+            background = ColorDrawable(Color.parseColor("#B8000000"))
+            isClickable = true   // swallow taps so the board behind can't be touched
+        }
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(30), dp(30), dp(30), dp(26))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(26).toFloat()
+                colors = intArrayOf(Color.parseColor("#2A2F3A"), Color.parseColor("#12151D"))
+                orientation = GradientDrawable.Orientation.TOP_BOTTOM
+                setStroke(dp(1), Color.parseColor("#55FFFFFF"))
+            }
+        }
+
+        panel.addView(TextView(this).apply {
+            text = "👑"
+            textSize = 54f
+            gravity = Gravity.CENTER
+        })
+        panel.addView(spacer(dp(4)))
+        victoryTitle = TextView(this).apply {
+            textSize = 34f
+            setTextColor(Color.WHITE)
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setShadowLayer(12f, 0f, 3f, Color.BLACK)
+        }
+        panel.addView(victoryTitle)
+        panel.addView(spacer(dp(8)))
+        victorySubtitle = TextView(this).apply {
+            textSize = 15f
+            setTextColor(Color.parseColor("#FFD54F"))
+            gravity = Gravity.CENTER
+        }
+        panel.addView(victorySubtitle)
+        panel.addView(spacer(dp(26)))
+
+        panel.addView(pillButton("再来一局", "#66BB6A", "#2E7D32").apply {
+            setOnClickListener {
+                sound.play(SoundFx.Type.CLICK)
+                hideVictory()
+                glView.postNewGame()
+            }
+        }, LinearLayout.LayoutParams(MATCH, WRAP))
+        panel.addView(spacer(dp(12)))
+        panel.addView(pillButton("返回主页", "#78909C", "#455A64").apply {
+            setOnClickListener {
+                sound.play(SoundFx.Type.CLICK)
+                hideVictory()
+                glView.postExitToHome()
+            }
+        }, LinearLayout.LayoutParams(MATCH, WRAP))
+
+        f.addView(panel, FrameLayout.LayoutParams(dp(300), WRAP).apply {
+            gravity = Gravity.CENTER
+        })
+        return f
+    }
+
+    private fun showVictory(s: GameStatus, turn: PieceColor) {
+        when (s) {
+            GameStatus.CHECKMATE -> {
+                val winner = if (turn == PieceColor.WHITE) "黑方" else "白方"
+                victoryTitle.text = "$winner 获胜"
+                victoryTitle.setTextColor(Color.WHITE)
+                victorySubtitle.text = "将死对方的王！"
+            }
+            GameStatus.STALEMATE -> {
+                victoryTitle.text = "和棋"
+                victoryTitle.setTextColor(Color.parseColor("#E0E0E0"))
+                victorySubtitle.text = "逼和 · 无子可动"
+            }
+            else -> return
+        }
+        if (victoryOverlay.visibility == View.VISIBLE) return
+        val panel = victoryOverlay.getChildAt(0)
+        victoryOverlay.alpha = 0f
+        victoryOverlay.visibility = View.VISIBLE
+        panel.scaleX = 0.7f; panel.scaleY = 0.7f
+        victoryOverlay.animate().alpha(1f).setDuration(280).start()
+        panel.animate().scaleX(1f).scaleY(1f).setDuration(380)
+            .setInterpolator(OvershootInterpolator()).start()
+    }
+
+    private fun hideVictory() {
+        if (victoryOverlay.visibility != View.VISIBLE) return
+        victoryOverlay.animate().alpha(0f).setDuration(200).withEndAction {
+            victoryOverlay.visibility = View.GONE
+        }.start()
+    }
+
     private fun startMatch(mode: ChessRenderer.Mode, aiColor: PieceColor) {
         val current = when {
             modeOverlay.visibility == View.VISIBLE -> modeOverlay
@@ -323,6 +441,7 @@ class MainActivity : AppCompatActivity(), ChessRenderer.Callbacks {
         modeOverlay.visibility = View.GONE
         difficultyOverlay.visibility = View.GONE
         colorOverlay.visibility = View.GONE
+        victoryOverlay.visibility = View.GONE
         fadeIn(homeOverlay)
     }
 
@@ -363,6 +482,10 @@ class MainActivity : AppCompatActivity(), ChessRenderer.Callbacks {
                 "将死！$winner 获胜"
             }
             GameStatus.STALEMATE -> "和棋（逼和）"
+        }
+        when (s) {
+            GameStatus.CHECKMATE, GameStatus.STALEMATE -> showVictory(s, turn)
+            else -> hideVictory()
         }
     }
 
@@ -482,12 +605,12 @@ class MainActivity : AppCompatActivity(), ChessRenderer.Callbacks {
     /** Color-coded identification key, matching the on-board rings in the renderer. */
     private fun buildLegendText(): CharSequence {
         val items = listOf(
-            "● 兵" to "#B8B8C2",
-            "● 马" to "#479EFF",
-            "● 象" to "#66D166",
-            "● 车" to "#FF9E38",
-            "● 后" to "#EB5CD9",
-            "● 王" to "#FFD640"
+            "● 兵" to "#D1D1E0",
+            "● 马" to "#2E94FF",
+            "● 象" to "#42EB57",
+            "● 车" to "#FF8F14",
+            "● 后" to "#FF47E6",
+            "● 王" to "#FFD91F"
         )
         val sb = android.text.SpannableStringBuilder()
         for ((i, it) in items.withIndex()) {

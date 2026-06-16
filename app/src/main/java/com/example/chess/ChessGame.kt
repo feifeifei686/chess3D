@@ -141,6 +141,34 @@ class ChessGame {
     /** Is the side to move currently in check? */
     fun inCheck(): Boolean = isInCheck(board, turn)
 
+    /**
+     * Squares of the enemy pieces that are currently giving check to the side to
+     * move. Empty when the side to move is not in check. Used by the UI to point
+     * out the attacker (a little "shake" reminder).
+     */
+    fun checkingPieces(): List<Pair<Int, Int>> {
+        if (!isInCheck(board, turn)) return emptyList()
+        var kr = -1
+        var kc = -1
+        outer@ for (r in 0 until 8) for (c in 0 until 8) {
+            val p = board[r][c]
+            if (p != null && p.color == turn && p.type == PieceType.KING) {
+                kr = r; kc = c; break@outer
+            }
+        }
+        if (kr < 0) return emptyList()
+        val enemy = turn.opposite()
+        val res = ArrayList<Pair<Int, Int>>()
+        for (r in 0 until 8) for (c in 0 until 8) {
+            val p = board[r][c] ?: continue
+            if (p.color != enemy) continue
+            if (pseudoLegalMoves(board, r, c, null).any { it.toR == kr && it.toC == kc }) {
+                res.add(Pair(r, c))
+            }
+        }
+        return res
+    }
+
     /** A deep copy of the whole game, so the AI can search without side effects. */
     fun snapshot(): ChessGame {
         val g = ChessGame()

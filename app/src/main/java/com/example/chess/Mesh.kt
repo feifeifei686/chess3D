@@ -138,6 +138,52 @@ class MeshBuilder {
         }
     }
 
+    /**
+     * Extrude a closed 2D side-profile (in the Y-Z plane) along the X axis to
+     * make a solid slab of total width 2*[halfWidth], centered on x=0. [profile]
+     * is a flat list z0,y0,z1,y1,... naming the polygon vertices in order. Used
+     * to sculpt the knight's horse head, which a surface of revolution can't make.
+     */
+    fun extrude(profile: FloatArray, halfWidth: Float) {
+        val n = profile.size / 2
+        if (n < 3) return
+        // Signed area in the z-y plane tells us the polygon's winding, so the
+        // generated faces get outward normals no matter how the caller listed it.
+        var area = 0f
+        for (i in 0 until n) {
+            val j = (i + 1) % n
+            area += profile[i * 2] * profile[j * 2 + 1] - profile[j * 2] * profile[i * 2 + 1]
+        }
+        val ccw = area > 0f
+
+        val rightBase = pos.size / 3
+        for (i in 0 until n) vertex(halfWidth, profile[i * 2 + 1], profile[i * 2])
+        val leftBase = pos.size / 3
+        for (i in 0 until n) vertex(-halfWidth, profile[i * 2 + 1], profile[i * 2])
+
+        // Side fans: +x face must end up with a +x normal, -x face with -x.
+        for (i in 1 until n - 1) {
+            if (ccw) {
+                triangle(rightBase, rightBase + i + 1, rightBase + i)
+                triangle(leftBase, leftBase + i, leftBase + i + 1)
+            } else {
+                triangle(rightBase, rightBase + i, rightBase + i + 1)
+                triangle(leftBase, leftBase + i + 1, leftBase + i)
+            }
+        }
+        // Perimeter walls connecting the two side loops, normals facing outward.
+        for (i in 0 until n) {
+            val j = (i + 1) % n
+            val r0 = rightBase + i; val r1 = rightBase + j
+            val l0 = leftBase + i;  val l1 = leftBase + j
+            if (ccw) {
+                triangle(r0, r1, l1); triangle(r0, l1, l0)
+            } else {
+                triangle(r0, l1, r1); triangle(r0, l0, l1)
+            }
+        }
+    }
+
     fun build(): Mesh {
         val nv = pos.size / 3
         val nrm = FloatArray(nv * 3)

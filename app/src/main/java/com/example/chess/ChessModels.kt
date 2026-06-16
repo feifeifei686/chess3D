@@ -21,7 +21,7 @@ object ChessModels {
     fun pieceHeight(type: PieceType): Float = when (type) {
         PieceType.PAWN -> 0.80f
         PieceType.ROOK -> 0.86f
-        PieceType.KNIGHT -> 0.95f
+        PieceType.KNIGHT -> 1.06f
         PieceType.BISHOP -> 1.06f
         PieceType.QUEEN -> 1.28f
         PieceType.KING -> 1.45f
@@ -41,11 +41,33 @@ object ChessModels {
         0.22f, 0.78f, 0.00f, 0.78f
     )
 
-    private val KNIGHT = floatArrayOf(
+    // The knight is NOT a surface of revolution — it's a turned pedestal with a
+    // sculpted horse head extruded on top, so it actually reads as a horse.
+    private val KNIGHT_BASE = floatArrayOf(
         0.00f, 0.00f, 0.40f, 0.00f, 0.40f, 0.07f, 0.26f, 0.13f,
-        0.20f, 0.20f, 0.18f, 0.34f, 0.30f, 0.48f, 0.34f, 0.60f,
-        0.30f, 0.70f, 0.33f, 0.78f, 0.24f, 0.86f, 0.18f, 0.92f,
-        0.00f, 0.95f
+        0.22f, 0.18f, 0.21f, 0.34f, 0.27f, 0.40f, 0.22f, 0.44f,
+        0.00f, 0.45f
+    )
+
+    // Side silhouette of the horse head in the z-y plane, muzzle pointing toward
+    // -z. Extruded along x to give it thickness. Walks the outline back-of-neck →
+    // mane → poll → brow → nose → muzzle → jaw → throat → front-of-neck.
+    private val KNIGHT_HEAD = floatArrayOf(
+        0.30f, 0.38f,   // back-bottom of neck
+        0.34f, 0.66f,   // back of neck
+        0.26f, 0.86f,   // crest / mane
+        0.14f, 0.94f,   // poll (behind ears)
+        0.02f, 0.95f,   // brow
+        -0.08f, 0.90f,  // forehead
+        -0.22f, 0.80f,  // nose bridge
+        -0.34f, 0.70f,  // nose
+        -0.40f, 0.62f,  // muzzle tip
+        -0.38f, 0.54f,  // upper lip
+        -0.28f, 0.54f,  // under muzzle
+        -0.16f, 0.58f,  // jaw
+        -0.06f, 0.52f,  // throat (cheek)
+        0.06f, 0.44f,   // throat lower
+        0.16f, 0.38f    // front-bottom of neck
     )
 
     private val BISHOP = floatArrayOf(
@@ -75,7 +97,13 @@ object ChessModels {
         when (type) {
             PieceType.PAWN -> b.lathe(PAWN, SEGMENTS)
             PieceType.ROOK -> b.lathe(ROOK, SEGMENTS)
-            PieceType.KNIGHT -> b.lathe(KNIGHT, SEGMENTS)
+            PieceType.KNIGHT -> {
+                b.lathe(KNIGHT_BASE, SEGMENTS)
+                b.extrude(KNIGHT_HEAD, 0.15f)
+                // Two upright ears flanking the poll.
+                b.box(0.035f, 0.92f, 0.11f, 0.105f, 1.06f, 0.20f)
+                b.box(-0.105f, 0.92f, 0.11f, -0.035f, 1.06f, 0.20f)
+            }
             PieceType.BISHOP -> b.lathe(BISHOP, SEGMENTS)
             PieceType.QUEEN -> b.lathe(QUEEN, SEGMENTS)
             PieceType.KING -> {
@@ -85,6 +113,29 @@ object ChessModels {
                 b.box(-0.15f, 1.26f, -0.05f, 0.15f, 1.36f, 0.05f)
             }
         }
+        return b.build()
+    }
+
+    /**
+     * A stylized hand reaching down to grip a piece: a forearm rising up out of
+     * frame, a palm, three curled fingers on the far (-z) side and an opposed
+     * thumb on the near (+z) side. The grip point is the origin, so the renderer
+     * can park it right on top of the piece it's carrying. Built from axis-aligned
+     * boxes; each finger is two segments to fake a curl.
+     */
+    fun buildHand(): Mesh {
+        val b = MeshBuilder()
+        // Forearm and palm.
+        b.box(-0.10f, 0.38f, -0.09f, 0.10f, 1.45f, 0.09f)
+        b.box(-0.18f, 0.16f, -0.16f, 0.18f, 0.40f, 0.16f)
+        // Three fingers on the -z side, each an upper segment plus an inward-curled tip.
+        for (xc in floatArrayOf(-0.12f, 0.0f, 0.12f)) {
+            b.box(xc - 0.035f, 0.02f, -0.18f, xc + 0.035f, 0.20f, -0.12f)
+            b.box(xc - 0.035f, -0.06f, -0.13f, xc + 0.035f, 0.05f, -0.07f)
+        }
+        // Opposed thumb on the +z side.
+        b.box(-0.06f, 0.04f, 0.12f, 0.06f, 0.20f, 0.18f)
+        b.box(-0.06f, -0.04f, 0.06f, 0.06f, 0.07f, 0.12f)
         return b.build()
     }
 

@@ -20,3 +20,6 @@ captures/
 
 # Logs
 *.log
+
+# Archived release APKs (binary build artifacts, kept locally only)
+apks/

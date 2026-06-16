@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  App icon foreground: a chess QUEEN in the centre, with one pawn on the left,
+  one on the right, and one behind (upper) it. 108x108 adaptive canvas; content
+  kept within the safe zone. The rear pawn is drawn first so the queen overlaps it.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- ===== pawn behind (upper-centre) ===== -->
+    <group android:translateX="54" android:translateY="26" android:scaleX="0.5" android:scaleY="0.5">
+        <path android:fillColor="#D7B36A" android:strokeColor="#3A2E18" android:strokeWidth="1.4"
+            android:pathData="M-6,6 A6,6 0 1 1 6,6 A6,6 0 1 1 -6,6 Z M-3.5,11 L3.5,11 L5,15 Q6.5,17.5 4,19.5 L8.5,29 L-8.5,29 L-4,19.5 Q-6.5,17.5 -5,15 Z M-9.5,28.5 L9.5,28.5 L9.5,31.5 L-9.5,31.5 Z"/>
+    </group>
+
+    <!-- ===== pawn on the left ===== -->
+    <group android:translateX="26" android:translateY="58" android:scaleX="0.62" android:scaleY="0.62">
+        <path android:fillColor="#D7B36A" android:strokeColor="#3A2E18" android:strokeWidth="1.2"
+            android:pathData="M-6,6 A6,6 0 1 1 6,6 A6,6 0 1 1 -6,6 Z M-3.5,11 L3.5,11 L5,15 Q6.5,17.5 4,19.5 L8.5,29 L-8.5,29 L-4,19.5 Q-6.5,17.5 -5,15 Z M-9.5,28.5 L9.5,28.5 L9.5,31.5 L-9.5,31.5 Z"/>
+    </group>
+
+    <!-- ===== pawn on the right ===== -->
+    <group android:translateX="82" android:translateY="58" android:scaleX="0.62" android:scaleY="0.62">
+        <path android:fillColor="#D7B36A" android:strokeColor="#3A2E18" android:strokeWidth="1.2"
+            android:pathData="M-6,6 A6,6 0 1 1 6,6 A6,6 0 1 1 -6,6 Z M-3.5,11 L3.5,11 L5,15 Q6.5,17.5 4,19.5 L8.5,29 L-8.5,29 L-4,19.5 Q-6.5,17.5 -5,15 Z M-9.5,28.5 L9.5,28.5 L9.5,31.5 L-9.5,31.5 Z"/>
+    </group>
+
+    <!-- ===== queen (crown + body), centred and on top ===== -->
+    <group android:translateX="54" android:translateY="30">
+        <!-- body: flared base up to the collar -->
+        <path android:fillColor="#F4ECD8" android:strokeColor="#5A4A2C" android:strokeWidth="1.4"
+            android:pathData="M-15,52 L15,52 L17,46 L-17,46 Z M-13,45 L13,45 L9,24 L-9,24 Z M-10,23 L10,23 Q12,19 9,16 L-9,16 Q-12,19 -10,23 Z"/>
+        <!-- crown: five points, sitting on the collar -->
+        <path android:fillColor="#F4ECD8" android:strokeColor="#5A4A2C" android:strokeWidth="1.4"
+            android:pathData="M-11,15 L-9,2 L-4.5,11 L0,0 L4.5,11 L9,2 L11,15 Z"/>
+        <!-- crown ball finials -->
+        <path android:fillColor="#F4ECD8" android:strokeColor="#5A4A2C" android:strokeWidth="1.0"
+            android:pathData="M-2.6,0 A2.6,2.6 0 1 1 2.6,0 A2.6,2.6 0 1 1 -2.6,0 Z
+                              M-11.2,2 A2.2,2.2 0 1 1 -6.8,2 A2.2,2.2 0 1 1 -11.2,2 Z
+                              M6.8,2 A2.2,2.2 0 1 1 11.2,2 A2.2,2.2 0 1 1 6.8,2 Z"/>
+        <!-- collar band -->
+        <path android:fillColor="#E0CFA0"
+            android:pathData="M-11,15 L11,15 L10,18 L-10,18 Z"/>
+    </group>
+</vector>

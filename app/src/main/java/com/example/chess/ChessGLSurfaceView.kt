@@ -35,4 +35,5 @@ class ChessGLSurfaceView(context: Context, callbacks: ChessRenderer.Callbacks) :
     fun postExitToHome() = queueEvent { renderer.exitToHome() }
     fun postToggleView() = queueEvent { renderer.toggleView() }
     fun postUndo() = queueEvent { renderer.requestUndo() }
+    fun postHint() = queueEvent { renderer.requestHint() }
 }
