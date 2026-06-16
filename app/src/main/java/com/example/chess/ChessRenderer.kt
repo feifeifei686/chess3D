@@ -32,6 +32,8 @@ class ChessRenderer(private val callbacks: Callbacks) : GLSurfaceView.Renderer {
         fun onCanUndo(canUndo: Boolean)
         fun onEvalUpdate(blackWinRate: Float)
         fun onEvalHistory(history: List<Float>)
+        fun onAIDialog(text: String, durationMs: Long)
+        fun onAIThinking(isThinking: Boolean)
     }
 
     enum class Mode { TWO_PLAYER, VS_AI }
@@ -46,6 +48,7 @@ class ChessRenderer(private val callbacks: Callbacks) : GLSurfaceView.Renderer {
     private var mode = Mode.TWO_PLAYER
     private var aiColor = PieceColor.BLACK
     private var aiDepth = 3
+    private var aiCharacterId = "sato"
     private var aiThinking = false
 
     // --- meshes ---
@@ -644,6 +647,19 @@ class ChessRenderer(private val callbacks: Callbacks) : GLSurfaceView.Renderer {
             }
             callbacks.onStatus(game.status, game.turn)
             emitMeta()
+            // AI move reaction dialog — fire after the AI's move animation completes.
+            if (mode == Mode.VS_AI && game.turn != aiColor) {
+                val lastLog = moveLog.lastOrNull()
+                if (lastLog != null) {
+                    val char = Characters.byId(aiCharacterId)
+                    if (char != null) {
+                        val trigger = DialogManager.triggerForMove(lastLog.move, game)
+                        val desc = DialogManager.moveDesc(lastLog.move, game)
+                        val text = DialogManager.generate(char, trigger, desc)
+                        callbacks.onAIDialog(text, 4000)
+                    }
+                }
+            }
             maybeTriggerAI()
         }
     }
@@ -664,11 +680,12 @@ class ChessRenderer(private val callbacks: Callbacks) : GLSurfaceView.Renderer {
 
     // ---------------------------------------------------------------- control
 
-    fun beginGame(newMode: Mode, aiSide: PieceColor, depth: Int) {
+    fun beginGame(newMode: Mode, aiSide: PieceColor, depth: Int, characterId: String = "sato") {
         if (phase != Phase.HOME) return
         mode = newMode
         aiColor = aiSide
         aiDepth = depth
+        aiCharacterId = characterId
         game.reset()
         clearTransient()
         graveyard.clear()
@@ -681,6 +698,13 @@ class ChessRenderer(private val callbacks: Callbacks) : GLSurfaceView.Renderer {
             callbacks.onGameStarted()
             callbacks.onStatus(game.status, game.turn)
             emitMeta()
+            // Greeting dialog from the AI character
+            if (mode == Mode.VS_AI) {
+                val char = Characters.byId(aiCharacterId)
+                if (char != null) {
+                    callbacks.onAIDialog(DialogManager.generate(char, DialogTrigger.GREETING, null), 3000)
+                }
+            }
             maybeTriggerAI()
         }
     }
@@ -965,7 +989,7 @@ class ChessRenderer(private val callbacks: Callbacks) : GLSurfaceView.Renderer {
         hintThinking = true
         val snapshot = game.snapshot()
         Thread {
-            val mv = try { ChessAI.bestMove(snapshot, HINT_DEPTH) } catch (t: Throwable) { null }
+            val mv = try { ChessAI.bestMove(snapshot, aiDepth) } catch (t: Throwable) { null }
             glView?.queueEvent {
                 hintThinking = false
                 // Drop the hint if the board moved on while we were thinking.
@@ -987,12 +1011,19 @@ class ChessRenderer(private val callbacks: Callbacks) : GLSurfaceView.Renderer {
         if (game.status != GameStatus.ONGOING && game.status != GameStatus.CHECK) return
         aiThinking = true
         callbacks.onCanUndo(false)
+        callbacks.onAIThinking(true)
+        // Show a "thinking" dialog bubble.
+        val char = Characters.byId(aiCharacterId)
+        if (char != null) {
+            callbacks.onAIDialog(DialogManager.generate(char, DialogTrigger.THINKING, null), 2000)
+        }
         val snapshot = game.snapshot()
         val depth = aiDepth
         Thread {
             val mv = try { ChessAI.bestMove(snapshot, depth) } catch (t: Throwable) { null }
             glView?.queueEvent {
                 aiThinking = false
+                callbacks.onAIThinking(false)
                 if (mv != null && phase == Phase.PLAYING && anim == null && game.turn == aiColor) {
                     applyMove(mv)
                 }
@@ -1170,8 +1201,7 @@ class ChessRenderer(private val callbacks: Callbacks) : GLSurfaceView.Renderer {
 
         private const val SHAKE_DUR_NS = 620_000_000f
 
-        // Best-move hint search depth and how long the flash lingers.
-        private const val HINT_DEPTH = 3
+        // How long the best-move hint flash lingers.
         private const val HINT_DUR_NS = 3_400_000_000L
 
         private fun normalize(v: FloatArray): FloatArray {

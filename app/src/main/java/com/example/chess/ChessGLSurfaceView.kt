@@ -28,8 +28,8 @@ class ChessGLSurfaceView(context: Context, callbacks: ChessRenderer.Callbacks) :
         return super.onTouchEvent(event)
     }
 
-    fun postBeginGame(mode: ChessRenderer.Mode, aiColor: PieceColor, depth: Int) =
-        queueEvent { renderer.beginGame(mode, aiColor, depth) }
+    fun postBeginGame(mode: ChessRenderer.Mode, aiColor: PieceColor, depth: Int, characterId: String = "sato") =
+        queueEvent { renderer.beginGame(mode, aiColor, depth, characterId) }
 
     fun postNewGame() = queueEvent { renderer.newGame() }
     fun postExitToHome() = queueEvent { renderer.exitToHome() }

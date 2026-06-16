@@ -19,6 +19,7 @@ import android.view.animation.OvershootInterpolator
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -43,7 +44,7 @@ class MainActivity : AppCompatActivity(), ChessRenderer.Callbacks {
     // Full-screen overlays
     private lateinit var homeOverlay: FrameLayout
     private lateinit var modeOverlay: FrameLayout
-    private lateinit var difficultyOverlay: FrameLayout
+    private lateinit var characterOverlay: FrameLayout
     private lateinit var colorOverlay: FrameLayout
     private lateinit var victoryOverlay: FrameLayout
     private lateinit var victoryTitle: TextView
@@ -54,8 +55,11 @@ class MainActivity : AppCompatActivity(), ChessRenderer.Callbacks {
     private lateinit var winRateText: TextView
     private var evalForCurve: List<Float> = emptyList()
 
-    // Chosen AI search depth (set on the difficulty screen).
-    private var chosenDepth = 3
+    // Chosen AI character (set on the character-select screen).
+    private var chosenCharacter: CharacterDef = Characters.ALL[2] // default: 佐藤
+
+    // Dialog bubble for AI character speech.
+    private lateinit var dialogBubble: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -77,18 +81,18 @@ class MainActivity : AppCompatActivity(), ChessRenderer.Callbacks {
         buildHud(root)
         homeOverlay = buildHome()
         modeOverlay = buildModeSelect()
-        difficultyOverlay = buildDifficultySelect()
+        characterOverlay = buildCharacterSelect()
         colorOverlay = buildColorSelect()
         victoryOverlay = buildVictory()
         curveOverlay = buildCurveOverlay()
         root.addView(homeOverlay, FrameLayout.LayoutParams(MATCH, MATCH))
         root.addView(modeOverlay, FrameLayout.LayoutParams(MATCH, MATCH))
-        root.addView(difficultyOverlay, FrameLayout.LayoutParams(MATCH, MATCH))
+        root.addView(characterOverlay, FrameLayout.LayoutParams(MATCH, MATCH))
         root.addView(colorOverlay, FrameLayout.LayoutParams(MATCH, MATCH))
         root.addView(victoryOverlay, FrameLayout.LayoutParams(MATCH, MATCH))
         root.addView(curveOverlay, FrameLayout.LayoutParams(MATCH, MATCH))
         modeOverlay.visibility = View.GONE
-        difficultyOverlay.visibility = View.GONE
+        characterOverlay.visibility = View.GONE
         colorOverlay.visibility = View.GONE
         victoryOverlay.visibility = View.GONE
         curveOverlay.visibility = View.GONE
@@ -211,6 +215,24 @@ class MainActivity : AppCompatActivity(), ChessRenderer.Callbacks {
             bottomMargin = dp(150); marginStart = dp(20)
         })
 
+        // Dialog bubble for AI character speech.
+        dialogBubble = TextView(this).apply {
+            textSize = 14f
+            setTextColor(Color.WHITE)
+            setPadding(dp(14), dp(10), dp(14), dp(10))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(18).toFloat()
+                colors = intArrayOf(Color.parseColor("#CC1C1F26"), Color.parseColor("#CC0D1018"))
+                orientation = GradientDrawable.Orientation.TOP_BOTTOM
+                setStroke(dp(1), Color.parseColor("#55FFFFFF"))
+            }
+            visibility = View.GONE
+        }
+        root.addView(dialogBubble, FrameLayout.LayoutParams(WRAP, WRAP).apply {
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            topMargin = dp(100)
+        })
+
         newGameBtn = pillButton("重新开始", "#FFA726", "#EF6C00").apply {
             textSize = 14f
             setPadding(dp(20), dp(12), dp(20), dp(12))
@@ -233,6 +255,8 @@ class MainActivity : AppCompatActivity(), ChessRenderer.Callbacks {
         if (visible) {
             undoBtn.isEnabled = false
             undoBtn.alpha = 0.4f
+        } else {
+            dialogBubble.visibility = View.GONE
         }
     }
 
@@ -295,7 +319,7 @@ class MainActivity : AppCompatActivity(), ChessRenderer.Callbacks {
         panel.addView(spacer(dp(14)))
         panel.addView(bigChoice("人机对战", "挑战内置 AI 对手", "#66BB6A", "#2E7D32") {
             sound.play(SoundFx.Type.CLICK)
-            fadeOut(modeOverlay) { fadeIn(difficultyOverlay) }
+            fadeOut(modeOverlay) { fadeIn(characterOverlay) }
         })
         panel.addView(spacer(dp(18)))
         panel.addView(backLink("← 返回") {
@@ -307,37 +331,98 @@ class MainActivity : AppCompatActivity(), ChessRenderer.Callbacks {
         return f
     }
 
-    private fun buildDifficultySelect(): FrameLayout {
+    private fun buildCharacterSelect(): FrameLayout {
         val f = FrameLayout(this)
+        val scrollView = ScrollView(this).apply {
+            setBackgroundColor(Color.TRANSPARENT)
+        }
         val panel = panel()
 
-        panel.addView(heading("选择 AI 难度"))
-        panel.addView(spacer(dp(22)))
-        panel.addView(bigChoice("简单", "AI 只看一步，会送子", "#66BB6A", "#2E7D32") {
-            sound.play(SoundFx.Type.CLICK)
-            chosenDepth = 1
-            fadeOut(difficultyOverlay) { fadeIn(colorOverlay) }
-        })
-        panel.addView(spacer(dp(14)))
-        panel.addView(bigChoice("普通", "基础战术，均衡对局", "#42A5F5", "#1565C0") {
-            sound.play(SoundFx.Type.CLICK)
-            chosenDepth = 2
-            fadeOut(difficultyOverlay) { fadeIn(colorOverlay) }
-        })
-        panel.addView(spacer(dp(14)))
-        panel.addView(bigChoice("困难", "深算三步，有挑战性", "#EF5350", "#C62828") {
-            sound.play(SoundFx.Type.CLICK)
-            chosenDepth = 3
-            fadeOut(difficultyOverlay) { fadeIn(colorOverlay) }
-        })
+        panel.addView(heading("选择对手"))
         panel.addView(spacer(dp(18)))
+
+        for (char in Characters.ALL) {
+            panel.addView(characterCard(char) {
+                sound.play(SoundFx.Type.CLICK)
+                chosenCharacter = char
+                fadeOut(characterOverlay) { fadeIn(colorOverlay) }
+            })
+            panel.addView(spacer(dp(10)))
+        }
+
+        panel.addView(spacer(dp(8)))
         panel.addView(backLink("← 返回") {
             sound.play(SoundFx.Type.CLICK)
-            fadeOut(difficultyOverlay) { fadeIn(modeOverlay) }
+            fadeOut(characterOverlay) { fadeIn(modeOverlay) }
         })
 
-        f.addView(panel, centerPanelParams())
+        scrollView.addView(panel)
+        f.addView(scrollView, FrameLayout.LayoutParams(dp(320), MATCH).apply {
+            gravity = Gravity.CENTER
+            topMargin = dp(70)
+            bottomMargin = dp(50)
+        })
         return f
+    }
+
+    private fun characterCard(char: CharacterDef, onClick: () -> Unit): LinearLayout {
+        val ll = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(14), dp(14), dp(18), dp(14))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(18).toFloat()
+                setColor(Color.parseColor("#CC2A2F3A"))
+                setStroke(dp(1), Color.parseColor("#33FFFFFF"))
+            }
+            isClickable = true
+            setOnClickListener { onClick() }
+        }
+
+        // Avatar image
+        val avatar = android.widget.ImageView(this).apply {
+            setImageResource(char.avatarResId)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setSize(dp(60), dp(60))
+            }
+            setPadding(dp(2), dp(2), dp(2), dp(2))
+        }
+        ll.addView(avatar, LinearLayout.LayoutParams(dp(60), dp(60)).apply {
+            marginEnd = dp(16)
+        })
+
+        // Name + title + strength
+        val textCol = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.START
+        }
+        textCol.addView(TextView(this).apply {
+            text = char.name
+            textSize = 20f
+            setTextColor(Color.WHITE)
+            typeface = Typeface.DEFAULT_BOLD
+        })
+        textCol.addView(TextView(this).apply {
+            text = char.title
+            textSize = 13f
+            setTextColor(Color.parseColor("#B0BEC5"))
+        })
+        textCol.addView(TextView(this).apply {
+            text = "棋力 ~${char.strength}"
+            textSize = 12f
+            setTextColor(Color.parseColor("#FFD54F"))
+        })
+        ll.addView(textCol, LinearLayout.LayoutParams(0, WRAP, 1f))
+
+        // Arrow
+        ll.addView(TextView(this).apply {
+            text = "→"
+            textSize = 22f
+            setTextColor(Color.parseColor("#55FFFFFF"))
+        })
+
+        return ll
     }
 
     private fun buildColorSelect(): FrameLayout {
@@ -358,7 +443,7 @@ class MainActivity : AppCompatActivity(), ChessRenderer.Callbacks {
         panel.addView(spacer(dp(18)))
         panel.addView(backLink("← 返回") {
             sound.play(SoundFx.Type.CLICK)
-            fadeOut(colorOverlay) { fadeIn(difficultyOverlay) }
+            fadeOut(colorOverlay) { fadeIn(characterOverlay) }
         })
 
         f.addView(panel, centerPanelParams())
@@ -471,11 +556,11 @@ class MainActivity : AppCompatActivity(), ChessRenderer.Callbacks {
         val current = when {
             modeOverlay.visibility == View.VISIBLE -> modeOverlay
             colorOverlay.visibility == View.VISIBLE -> colorOverlay
-            else -> difficultyOverlay
+            else -> characterOverlay
         }
         fadeOut(current)
-        val depth = if (mode == ChessRenderer.Mode.TWO_PLAYER) 3 else chosenDepth
-        glView.postBeginGame(mode, aiColor, depth)
+        val depth = if (mode == ChessRenderer.Mode.TWO_PLAYER) 3 else chosenCharacter.depth
+        glView.postBeginGame(mode, aiColor, depth, chosenCharacter.id)
     }
 
     // ----------------------------------------------------- renderer callbacks
@@ -491,7 +576,7 @@ class MainActivity : AppCompatActivity(), ChessRenderer.Callbacks {
         evalForCurve = emptyList()
         setHudVisible(false)
         modeOverlay.visibility = View.GONE
-        difficultyOverlay.visibility = View.GONE
+        characterOverlay.visibility = View.GONE
         colorOverlay.visibility = View.GONE
         victoryOverlay.visibility = View.GONE
         fadeIn(homeOverlay)
@@ -530,6 +615,15 @@ class MainActivity : AppCompatActivity(), ChessRenderer.Callbacks {
 
     override fun onEvalHistory(history: List<Float>) = runOnUiThread {
         evalForCurve = history
+    }
+
+    override fun onAIDialog(text: String, durationMs: Long) = runOnUiThread {
+        showDialogBubble(text, durationMs)
+    }
+
+    override fun onAIThinking(isThinking: Boolean) = runOnUiThread {
+        // The thinking bubble is shown via onAIDialog when AI starts thinking;
+        // this callback can be used for additional thinking indicators if needed.
     }
 
     override fun onNeedPromotion(apply: (PieceType) -> Unit) = runOnUiThread {
@@ -786,22 +880,22 @@ class MainActivity : AppCompatActivity(), ChessRenderer.Callbacks {
             val midY = padTop + chartH * 0.5f
             canvas.drawLine(padLeft, midY, padLeft + chartW, midY, midPaint)
 
-            // Top / bottom labels
-            canvas.drawText("黑 100%", padLeft - 10f, padTop + 22f, labelPaint)
-            canvas.drawText("白 100%", padLeft - 10f, padTop + chartH - 10f, labelPaint)
+            // Top / bottom labels (flipped: white at top, black at bottom)
+            canvas.drawText("白 100%", padLeft - 10f, padTop + 22f, labelPaint)
+            canvas.drawText("黑 100%", padLeft - 10f, padTop + chartH - 10f, labelPaint)
             canvas.drawText("50%", padLeft - 10f, midY + 8f, labelPaint)
 
-            // Build the curve path.
+            // Build the curve path (flipped: white advantage = top).
             val path = Path()
             val n = data.size
             for (i in 0 until n) {
                 val x = padLeft + (i.toFloat() / (n - 1)) * chartW
-                // data[i] = black win-rate 0-100 → map to chart: 0% = bottom, 100% = top
-                val y = padTop + (1f - data[i] / 100f) * chartH
+                // data[i] = black win-rate 0-100 → map to chart: 0% (white 100%) = top, 100% (black 100%) = bottom
+                val y = padTop + (data[i] / 100f) * chartH
                 if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
             }
 
-            // Filled area under the curve with a gradient.
+            // Filled area under the curve with a gradient (flipped).
             val fillPath = Path(path)
             fillPath.lineTo(padLeft + chartW, padTop + chartH)
             fillPath.lineTo(padLeft, padTop + chartH)
@@ -809,7 +903,7 @@ class MainActivity : AppCompatActivity(), ChessRenderer.Callbacks {
 
             fillPaint.shader = LinearGradient(
                 0f, padTop, 0f, padTop + chartH,
-                intArrayOf(Color.parseColor("#554242F5"), Color.parseColor("#5542A5F5"), Color.parseColor("#55B0BEC5")),
+                intArrayOf(Color.parseColor("#55B0BEC5"), Color.parseColor("#5542A5F5"), Color.parseColor("#554242F5")),
                 floatArrayOf(0f, 0.5f, 1f), Shader.TileMode.CLAMP
             )
             canvas.drawPath(fillPath, fillPaint)
@@ -817,9 +911,9 @@ class MainActivity : AppCompatActivity(), ChessRenderer.Callbacks {
             // The curve line itself.
             canvas.drawPath(path, linePaint)
 
-            // Side labels.
-            canvas.drawText("← 黑优", padLeft + chartW / 2, padTop - 16f, blackLabelPaint)
-            canvas.drawText("← 白优", padLeft + chartW / 2, padTop + chartH + 38f, whiteLabelPaint)
+            // Side labels (flipped: white advantage at top).
+            canvas.drawText("← 白优", padLeft + chartW / 2, padTop - 16f, whiteLabelPaint)
+            canvas.drawText("← 黑优", padLeft + chartW / 2, padTop + chartH + 38f, blackLabelPaint)
 
             // X-axis step markers.
             val stepPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -833,6 +927,27 @@ class MainActivity : AppCompatActivity(), ChessRenderer.Callbacks {
                 canvas.drawText("${i + 1}", x, padTop + chartH + 34f, stepPaint)
             }
         }
+    }
+
+    private fun showDialogBubble(text: String, durationMs: Long) {
+        // Cancel any ongoing animation.
+        dialogBubble.animate().cancel()
+        dialogBubble.text = text
+        dialogBubble.translationY = -30f
+        dialogBubble.alpha = 0f
+        dialogBubble.visibility = View.VISIBLE
+        dialogBubble.animate()
+            .translationY(0f).alpha(1f)
+            .setDuration(300)
+            .withEndAction {
+                dialogBubble.animate()
+                    .alpha(0f)
+                    .setStartDelay(durationMs)
+                    .setDuration(500)
+                    .withEndAction { dialogBubble.visibility = View.GONE }
+                    .start()
+            }
+            .start()
     }
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()

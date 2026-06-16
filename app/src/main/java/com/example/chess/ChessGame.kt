@@ -25,6 +25,8 @@ data class Move(
 
 enum class GameStatus { ONGOING, CHECK, CHECKMATE, STALEMATE }
 
+enum class GamePhase { OPENING, MIDDLEGAME, ENDGAME }
+
 /**
  * Full international-chess rules for local two-player (pass-and-play).
  * Board indexing: board[row][col], row 0 is the top (black's back rank),
@@ -444,6 +446,46 @@ class ChessGame {
             ) {
                 moves.add(Move(r, c, r, 2, isCastle = true))
             }
+        }
+    }
+
+    // ===================================================================
+    //  Game-phase helpers (for dialog system)
+    // ===================================================================
+
+    /** Total material count on the board (both sides, pawn=1, knight=3, bishop=3, rook=5, queen=9, king=0). */
+    fun totalMaterial(): Int {
+        var sum = 0
+        for (r in 0 until 8) for (c in 0 until 8) {
+            val p = board[r][c] ?: continue
+            sum += when (p.type) {
+                PieceType.PAWN -> 1
+                PieceType.KNIGHT -> 3
+                PieceType.BISHOP -> 3
+                PieceType.ROOK -> 5
+                PieceType.QUEEN -> 9
+                PieceType.KING -> 0
+            }
+        }
+        return sum
+    }
+
+    /** Number of pieces of the given colour still on the board. */
+    fun pieceCount(color: PieceColor): Int {
+        var cnt = 0
+        for (r in 0 until 8) for (c in 0 until 8) {
+            if (board[r][c]?.color == color) cnt++
+        }
+        return cnt
+    }
+
+    /** Classify the game phase based on total remaining material. */
+    fun gamePhase(): GamePhase {
+        val mat = totalMaterial()
+        return when {
+            mat >= 62 -> GamePhase.OPENING     // nearly all pieces on board
+            mat >= 30 -> GamePhase.MIDDLEGAME
+            else -> GamePhase.ENDGAME
         }
     }
 }

@@ -11,8 +11,8 @@ android {
         applicationId = "com.example.chess"
         minSdk = 24
         targetSdk = 34
-        versionCode = 7
-        versionName = "2.5"
+        versionCode = 8
+        versionName = "2.6"
     }
 
     buildTypes {
@@ -39,7 +39,7 @@ android {
     applicationVariants.all {
         outputs.all {
             val output = this as com.android.build.gradle.internal.api.BaseVariantOutputImpl
-            output.outputFileName = "chess3d-${buildType.name}-v2.5.apk"
+            output.outputFileName = "chess3d-${buildType.name}-v2.6.apk"
         }
     }
 }

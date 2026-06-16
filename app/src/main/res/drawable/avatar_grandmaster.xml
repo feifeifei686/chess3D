@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Avatar for 大师: gold background + king silhouette + radiant glow -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Circular gold background -->
+    <path android:fillColor="#FFA726"
+        android:pathData="M54,54 m-50,0 a50,50 0 1 1 100,0 a50,50 0 1 1 -100,0 Z"/>
+
+    <!-- Inner amber circle -->
+    <path android:fillColor="#FFCA28"
+        android:pathData="M54,54 m-42,0 a42,42 0 1 1 84,0 a42,42 0 1 1 -84,0 Z"/>
+
+    <!-- Radiant glow lines -->
+    <path android:fillColor="#00000000" android:strokeColor="#FFE082" android:strokeWidth="1.0"
+        android:pathData="M54,10 L54,4 M54,98 L54,104
+                          M10,54 L4,54 M98,54 L104,54
+                          M24,24 L18,18 M84,84 L90,90
+                          M84,24 L90,18 M24,84 L18,90
+                          M34,12 L30,6 M74,12 L78,6
+                          M12,34 L6,30 M12,74 L6,78
+                          M96,34 L102,30 M96,74 L102,78"/>
+
+    <!-- King silhouette (centered, elegant) -->
+    <group android:translateX="54" android:translateY="40" android:scaleX="1.25" android:scaleY="1.25">
+        <!-- Body -->
+        <path android:fillColor="#E65100"
+            android:pathData="M-12,20 L12,20 L10,4 L-10,4 Z"/>
+        <!-- Flared base -->
+        <path android:fillColor="#E65100"
+            android:pathData="M-15,30 L15,30 L17,25 L-17,25 Z"/>
+        <!-- Crown -->
+        <path android:fillColor="#E65100"
+            android:pathData="M-10,4 L-10,-4 L-5,2 L0,-6 L5,2 L10,-4 L10,4 Z"/>
+        <!-- Cross on top -->
+        <path android:fillColor="#E65100"
+            android:pathData="M-1.5,-10 L1.5,-10 L1.5,-6 L5.5,-6 L5.5,-3 L1.5,-3 L1.5,0 L-1.5,0 L-1.5,-3 L-5.5,-3 L-5.5,-6 L-1.5,-6 Z"/>
+    </group>
+
+    <!-- Meditative circle around king -->
+    <path android:fillColor="#00000000" android:strokeColor="#BF360C" android:strokeWidth="0.8"
+        android:pathData="M54,54 m-32,0 a32,32 0 1 1 64,0 a32,32 0 1 1 -64,0 Z"/>
+</vector>
