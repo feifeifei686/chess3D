@@ -271,8 +271,8 @@ class ChessRenderer(private val callbacks: Callbacks) : GLSurfaceView.Renderer {
 
     override fun onDrawFrame(gl: GL10?) = safely {
         nowNs = System.nanoTime()
-        // Safety: if a hint computation hangs, reset the flag after 8 seconds.
-        if (hintThinking && hintComputeStartNs > 0 && (nowNs - hintComputeStartNs) > 8_000_000_000L) {
+        // Safety: if a hint computation hangs, reset the flag after 4 seconds.
+        if (hintThinking && hintComputeStartNs > 0 && (nowNs - hintComputeStartNs) > 4_000_000_000L) {
             hintThinking = false; hintComputeStartNs = 0L
         }
         updateCamera()
@@ -897,7 +897,7 @@ class ChessRenderer(private val callbacks: Callbacks) : GLSurfaceView.Renderer {
             evalPending = true
             val snap = game.snapshot()
             Thread {
-                val cp = ChessAI.evaluateFromBlackPerspective(snap)
+                val cp = ChessAI.quickEvalBlack(snap)
                 val wr = ChessAI.evalToWinRate(cp)
                 glView?.queueEvent {
                     evalPending = false
@@ -1082,12 +1082,13 @@ class ChessRenderer(private val callbacks: Callbacks) : GLSurfaceView.Renderer {
         if (game.status != GameStatus.ONGOING && game.status != GameStatus.CHECK) return@safely
         hintThinking = true
         hintComputeStartNs = System.nanoTime()
-        // Use a deeper search for hints so they are useful even against weak-AI opponents.
-        val searchDepth = maxOf(aiDepth + 2, 5)
+        // Quick hint search: cap depth at 6 and budget at 2 s so the player
+        // isn't left waiting.  The search still sees tactics but returns fast.
+        val searchDepth = minOf(maxOf(aiDepth, 4), 6)
         val snapshot = game.snapshot()
         Thread {
             try {
-                val mv = ChessAI.bestMove(snapshot, searchDepth, 5000)
+                val mv = ChessAI.bestMove(snapshot, searchDepth, 2000)
                 glView?.queueEvent {
                     hintThinking = false
                     hintComputeStartNs = 0L

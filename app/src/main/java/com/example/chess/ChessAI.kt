@@ -164,6 +164,61 @@ object ChessAI {
         return maybeSuboptimal(best, moves, bestScore, maxDepth, root)
     }
 
+    /**
+     * Quick position evaluation via shallow iterative-deepening search.
+     * Returns a centipawn score from **Black's perspective** — positive means
+     * Black is better, negative means White is better.
+     *
+     * Used by the win-rate display / curve.  Unlike the static [evaluateFromBlackPerspective],
+     * this actually searches tactics and captures, so the displayed percentages
+     * reflect what the engine truly sees rather than just material count.
+     *
+     * @param root          position snapshot
+     * @param timeBudgetMs  soft time limit (default 1500 ms — fast enough for UI, deep enough for tactics)
+     */
+    fun quickEvalBlack(root: ChessGame, timeBudgetMs: Long = 1500): Int {
+        val moves = root.allLegalMoves()
+        if (moves.isEmpty()) {
+            // Checkmate or stalemate
+            return if (root.inCheck()) -MATE else 0
+        }
+
+        startNano = System.nanoTime()
+        this.timeBudgetMs = timeBudgetMs
+        searchAborted = false
+
+        history.age()
+        for (i in 0 until MAX_PLY) { killerMoves[i][0] = null; killerMoves[i][1] = null }
+
+        val rootHash = Zobrist.computeHash(root)
+        var bestScore = -INF
+
+        for (d in 1..5) {
+            if (elapsed() > timeBudgetMs * 0.6 || searchAborted) break
+
+            val prevScore = bestScore
+            var alpha = if (d <= 2) -INF else prevScore - 50
+            var beta  = if (d <= 2)  INF else prevScore + 50
+
+            for (m in moves) {
+                if (elapsed() > timeBudgetMs) { searchAborted = true; break }
+
+                val newHash = Zobrist.applyMoveToHash(root, m, rootHash)
+                val g = root.snapshot()
+                g.makeMove(m)
+
+                val score = -negamax(g, d - 1, -beta, -alpha, 1, newHash,
+                    isPv = true, prevPiece = -1, prevToSq = -1)
+
+                if (score > bestScore) bestScore = score
+                if (score > alpha) alpha = score
+            }
+        }
+
+        // bestScore is from root.turn's perspective; convert to Black's
+        return if (root.turn == PieceColor.BLACK) bestScore else -bestScore
+    }
+
     private fun elapsed(): Long = (System.nanoTime() - startNano) / 1_000_000
 
     // ===================================================================
@@ -411,7 +466,7 @@ object ChessAI {
         val victim = g.board[m.toR][m.toC]
         if (victim != null) return value(victim.type)
         if (m.isEnPassant) return value(PieceType.PAWN)
-        if (m.promotion != null) return value(m.promotion!!) - value(PieceType.PAWN)
+        if (m.promotion != null) return value(m.promotion) - value(PieceType.PAWN)
         return 0
     }
 
