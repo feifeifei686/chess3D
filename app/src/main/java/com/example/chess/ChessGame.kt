@@ -64,12 +64,16 @@ class ChessGame {
     /** Number of moves that can still be undone. */
     val movesPlayed: Int get() = history.size
 
+    /** Permanent record of every move played, unaffected by undo. */
+    val moveHistory = ArrayList<Move>()
+
     init {
         reset()
     }
 
     fun reset() {
         history.clear()
+        moveHistory.clear()
         for (r in 0 until 8) for (c in 0 until 8) board[r][c] = null
 
         val backRank = arrayOf(
@@ -114,6 +118,7 @@ class ChessGame {
 
         turn = turn.opposite()
         recomputeStatus()
+        moveHistory.add(move)
     }
 
     /**
@@ -127,6 +132,7 @@ class ChessGame {
         enPassant = m.enPassant
         status = m.status
         winner = m.winner
+        moveHistory.removeLastOrNull()
         return true
     }
 

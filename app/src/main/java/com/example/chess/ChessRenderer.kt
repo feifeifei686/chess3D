@@ -1,5 +1,6 @@
 package com.example.chess
 
+import android.graphics.Bitmap
 import android.opengl.GLES20
 import android.opengl.GLSurfaceView
 import android.opengl.Matrix
@@ -34,11 +35,17 @@ class ChessRenderer(private val callbacks: Callbacks) : GLSurfaceView.Renderer {
         fun onEvalHistory(history: List<Float>)
         fun onAIDialog(text: String, durationMs: Long)
         fun onAIThinking(isThinking: Boolean)
+        fun onGameEnded(winner: PieceColor?, status: GameStatus)
     }
 
     enum class Mode { TWO_PLAYER, VS_AI }
 
     var glView: GLSurfaceView? = null
+
+    // Public accessors for game-history saving.
+    val currentGame: ChessGame get() = game
+    val currentAiColor: PieceColor get() = aiColor
+    val currentMode: Mode get() = mode
 
     private enum class Phase { HOME, TO_GAME, PLAYING, TO_HOME }
 
@@ -50,6 +57,30 @@ class ChessRenderer(private val callbacks: Callbacks) : GLSurfaceView.Renderer {
     private var aiDepth = 3
     private var aiCharacterId = "sato"
     private var aiThinking = false
+
+    // --- screenshot capture ---
+    private var pendingScreenshot = false
+    private var screenshotCallback: ((android.graphics.Bitmap) -> Unit)? = null
+
+    // --- game-end tracking (for history saving) ---
+    private var gameEndedHandled = false
+    var gameStartTimeMs: Long = 0L
+
+    // --- replay mode ---
+    private var replayGame: ChessGame? = null
+    private var replayMoves: List<Move> = emptyList()
+    private var replayIndex: Int = -1          // -1 = not replaying, 0..N = position after N moves
+    private var replayAutoPlay = false
+    private var replayLastAdvanceNs = 0L
+    private val REPLAY_INTERVAL_NS = 500_000_000L  // 0.5 seconds
+
+    val isReplaying: Boolean get() = replayGame != null && replayIndex >= 0
+    val isReplayAutoPlaying: Boolean get() = replayAutoPlay
+    val replayMoveCount: Int get() = replayMoves.size
+    val replayCurrentIndex: Int get() = replayIndex
+
+    /** The board that should be drawn this frame: the live game, or the replay position. */
+    private val activeGame: ChessGame get() = replayGame ?: game
 
     // --- meshes ---
     private val pieceMeshes = HashMap<PieceType, Mesh>()
@@ -217,6 +248,8 @@ class ChessRenderer(private val callbacks: Callbacks) : GLSurfaceView.Renderer {
     // ---------------------------------------------------------------- lifecycle
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
+        pendingScreenshot = false
+        screenshotCallback = null
         GLES20.glClearColor(0.05f, 0.06f, 0.08f, 1f)
         GLES20.glEnable(GLES20.GL_DEPTH_TEST)
 
@@ -275,10 +308,22 @@ class ChessRenderer(private val callbacks: Callbacks) : GLSurfaceView.Renderer {
         if (hintThinking && hintComputeStartNs > 0 && (nowNs - hintComputeStartNs) > 4_000_000_000L) {
             hintThinking = false; hintComputeStartNs = 0L
         }
+
+        // Replay auto-play: advance every 0.5 seconds.
+        if (replayAutoPlay && isReplaying && nowNs - replayLastAdvanceNs >= REPLAY_INTERVAL_NS) {
+            replayLastAdvanceNs = nowNs
+            if (!replayNext()) {
+                replayAutoPlay = false
+                callbacks.onSound(SoundFx.Type.CLICK)
+            }
+        }
+
         updateCamera()
-        updateAnim()
-        updateFlyers()
-        checkIdleDialog()
+        if (!isReplaying) {
+            updateAnim()
+            updateFlyers()
+            checkIdleDialog()
+        }
 
         Matrix.setLookAtM(view, 0, camEye[0], camEye[1], camEye[2], target[0], target[1], target[2], camUp[0], camUp[1], camUp[2])
         Matrix.multiplyMM(vp, 0, proj, 0, view, 0)
@@ -305,6 +350,8 @@ class ChessRenderer(private val callbacks: Callbacks) : GLSurfaceView.Renderer {
         drawHints()
         GLES20.glDepthMask(true)
         GLES20.glDisable(GLES20.GL_BLEND)
+
+        captureScreenshotIfPending()
     }
 
     // ---------------------------------------------------------------- drawing
@@ -315,16 +362,17 @@ class ChessRenderer(private val callbacks: Callbacks) : GLSurfaceView.Renderer {
             return
         }
 
-        val a = anim
-        val checkSq = checkKingSquare()
+        val a = if (isReplaying) null else anim
+        val checkSq = if (!isReplaying) checkKingSquare() else null
+        val g = activeGame
         for (r in 0 until 8) {
             for (c in 0 until 8) {
                 if (a != null && a.movers.any { it.skipR == r && it.skipC == c }) continue
                 if (flyers.any { it.skipR == r && it.skipC == c }) continue
-                val p = game.board[r][c] ?: continue
+                val p = g.board[r][c] ?: continue
                 val red = if (checkSq != null && checkSq.first == r && checkSq.second == c) checkPulse() else 0f
-                val glow = pieceGlow(r, c)
-                val sx = shakeAmount(r, c)
+                val glow = if (!isReplaying) pieceGlow(r, c) else 0f
+                val sx = if (!isReplaying) shakeAmount(r, c) else 0f
                 if (sx != 0f) {
                     drawPieceAtFull(
                         p.type, p.color,
@@ -337,8 +385,10 @@ class ChessRenderer(private val callbacks: Callbacks) : GLSurfaceView.Renderer {
             }
         }
 
-        // Captured pieces resting off-board.
-        for (rp in graveyard) if (rp.visible) drawRestingPiece(rp)
+        // Captured pieces resting off-board (skip during replay).
+        if (!isReplaying) {
+            for (rp in graveyard) if (rp.visible) drawRestingPiece(rp)
+        }
 
         // The sliding piece(s) of the current move.
         if (a != null) {
@@ -472,18 +522,21 @@ class ChessRenderer(private val callbacks: Callbacks) : GLSurfaceView.Renderer {
             return
         }
 
-        val a = anim
+        val a = if (isReplaying) null else anim
+        val g = activeGame
         for (r in 0 until 8) {
             for (c in 0 until 8) {
                 if (a != null && a.movers.any { it.skipR == r && it.skipC == c }) continue
                 if (flyers.any { it.skipR == r && it.skipC == c }) continue
-                val p = game.board[r][c] ?: continue
+                val p = g.board[r][c] ?: continue
                 val rad = 0.30f + ChessModels.pieceHeight(p.type) * 0.06f
                 drawOverlay(ChessModels.squareCenterX(c) + ox, ChessModels.squareCenterZ(r) + oz, rad)
             }
         }
-        for (rp in graveyard) if (rp.visible) {
-            drawOverlay(rp.x + ox, rp.z + oz, 0.34f)
+        if (!isReplaying) {
+            for (rp in graveyard) if (rp.visible) {
+                drawOverlay(rp.x + ox, rp.z + oz, 0.34f)
+            }
         }
         if (a != null) {
             val t = ((nowNs - a.startNs).toFloat() / a.durNs).coerceIn(0f, 1f)
@@ -526,7 +579,7 @@ class ChessRenderer(private val callbacks: Callbacks) : GLSurfaceView.Renderer {
     }
 
     private fun drawHighlights() {
-        if (phase != Phase.PLAYING || anim != null || selR < 0) return
+        if (isReplaying || phase != Phase.PLAYING || anim != null || selR < 0) return
         GLES20.glUseProgram(ovProgram)
         GLES20.glUniform1f(ovInner, 0f)
         GLES20.glUniform4f(ovColor, 0.30f, 0.85f, 0.40f, 0.40f)
@@ -546,7 +599,7 @@ class ChessRenderer(private val callbacks: Callbacks) : GLSurfaceView.Renderer {
 
     /** Blinking rings for the check-escape savior pieces and the best-move hint. */
     private fun drawHints() {
-        if (phase != Phase.PLAYING) return
+        if (isReplaying || phase != Phase.PLAYING) return
         // Expire the best-move hint once its time is up.
         if (hintFromR >= 0 && nowNs - hintStartNs > HINT_DUR_NS) { hintFromR = -1; hintToR = -1 }
         if (saviorSquares.isEmpty() && hintFromR < 0) return
@@ -607,10 +660,11 @@ class ChessRenderer(private val callbacks: Callbacks) : GLSurfaceView.Renderer {
     }
 
     private fun checkKingSquare(): Pair<Int, Int>? {
-        if (game.status != GameStatus.CHECK && game.status != GameStatus.CHECKMATE) return null
-        val color = game.turn
+        val g = activeGame
+        if (g.status != GameStatus.CHECK && g.status != GameStatus.CHECKMATE) return null
+        val color = g.turn
         for (r in 0 until 8) for (c in 0 until 8) {
-            val p = game.board[r][c]
+            val p = g.board[r][c]
             if (p != null && p.color == color && p.type == PieceType.KING) return Pair(r, c)
         }
         return null
@@ -660,6 +714,10 @@ class ChessRenderer(private val callbacks: Callbacks) : GLSurfaceView.Renderer {
                 GameStatus.CHECKMATE, GameStatus.STALEMATE -> {
                     callbacks.onSound(SoundFx.Type.GAMEOVER)
                     callbacks.onEvalHistory(evalHistory.toList())
+                    if (!gameEndedHandled) {
+                        gameEndedHandled = true
+                        callbacks.onGameEnded(game.winner, game.status)
+                    }
                 }
                 else -> {}
             }
@@ -723,6 +781,8 @@ class ChessRenderer(private val callbacks: Callbacks) : GLSurfaceView.Renderer {
         moveLog.clear()
         evalHistory.clear()
         gameViewIndex = 0
+        gameStartTimeMs = System.currentTimeMillis()
+        gameEndedHandled = false
         phase = Phase.TO_GAME
         startCam(gameOverheadEye, gameUp, 1_700_000_000L) {
             phase = Phase.PLAYING
@@ -744,6 +804,7 @@ class ChessRenderer(private val callbacks: Callbacks) : GLSurfaceView.Renderer {
     }
 
     fun exitToHome() {
+        if (isReplaying) { endReplay(); return }
         if (phase != Phase.PLAYING || homing) return
         phase = Phase.TO_HOME
         clearTransient()
@@ -770,6 +831,7 @@ class ChessRenderer(private val callbacks: Callbacks) : GLSurfaceView.Renderer {
     }
 
     fun newGame() {
+        if (isReplaying) { endReplay(); return }
         if (phase != Phase.PLAYING && phase != Phase.TO_GAME) return
         if (homing) return
         clearTransient()
@@ -785,6 +847,8 @@ class ChessRenderer(private val callbacks: Callbacks) : GLSurfaceView.Renderer {
             homers.clear()
             aiThinking = false
             evalHistory.clear()
+            gameEndedHandled = false
+            gameStartTimeMs = System.currentTimeMillis()
             moveCount = 0
             lastPhaseTrigger = null
             callbacks.onStatus(game.status, game.turn)
@@ -794,7 +858,7 @@ class ChessRenderer(private val callbacks: Callbacks) : GLSurfaceView.Renderer {
     }
 
     fun handleTap(sx: Float, sy: Float) = safely {
-        if (phase != Phase.PLAYING || anim != null || busy || aiThinking || flyers.isNotEmpty() || homing) return@safely
+        if (isReplaying || phase != Phase.PLAYING || anim != null || busy || aiThinking || flyers.isNotEmpty() || homing) return@safely
         if (mode == Mode.VS_AI && game.turn == aiColor) return@safely
         val inCheck = game.status == GameStatus.CHECK
         val sq = pick(sx, sy)
@@ -1106,6 +1170,79 @@ class ChessRenderer(private val callbacks: Callbacks) : GLSurfaceView.Renderer {
                 glView?.queueEvent { hintThinking = false; hintComputeStartNs = 0L }
             }
         }.apply { isDaemon = true }.start()
+    }
+
+    // ---------------------------------------------------- screenshot capture
+
+    /** Queue a screenshot on the next frame. Callback delivers the Bitmap on the GL thread. */
+    fun requestScreenshot(callback: (Bitmap) -> Unit) {
+        pendingScreenshot = true
+        screenshotCallback = callback
+    }
+
+    private fun captureScreenshotIfPending() {
+        if (!pendingScreenshot) return
+        pendingScreenshot = false
+        val cb = screenshotCallback ?: return
+        screenshotCallback = null
+
+        val w = width; val h = height
+        if (w <= 0 || h <= 0) return
+
+        val buf = IntArray(w * h)
+        val intBuf = java.nio.IntBuffer.wrap(buf)
+        GLES20.glReadPixels(0, 0, w, h, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, intBuf)
+
+        // OpenGL returns rows bottom-to-top; flip to top-to-bottom for Bitmap.
+        val flipped = IntArray(w * h)
+        for (y in 0 until h) {
+            System.arraycopy(buf, (h - 1 - y) * w, flipped, y * w, w)
+        }
+        val bmp = Bitmap.createBitmap(flipped, w, h, Bitmap.Config.ARGB_8888)
+        cb(bmp)
+    }
+
+    // ---------------------------------------------------- replay mode
+
+    fun beginReplay(moves: List<Move>) {
+        endReplay()
+        replayGame = ChessGame()
+        replayGame!!.reset()
+        replayMoves = moves.toList()
+        replayIndex = 0       // position before the first move (starting position)
+        replayAutoPlay = false
+        replayLastAdvanceNs = nowNs
+        // Switch to the overhead camera for a clean view.
+        startCam(gameOverheadEye, gameUp, 300_000_000L, null)
+    }
+
+    /** Advance one move. Returns false if already at the end. */
+    fun replayNext(): Boolean {
+        if (!isReplaying || replayIndex >= replayMoves.size) return false
+        replayGame!!.makeMove(replayMoves[replayIndex])
+        replayIndex++
+        return true
+    }
+
+    /** Go back one move. Returns false if already at the start. */
+    fun replayPrev(): Boolean {
+        if (!isReplaying || replayIndex <= 0) return false
+        replayGame!!.undo()
+        replayIndex--
+        return true
+    }
+
+    fun replayToggleAutoPlay() {
+        if (!isReplaying) return
+        replayAutoPlay = !replayAutoPlay
+        if (replayAutoPlay) replayLastAdvanceNs = nowNs
+    }
+
+    fun endReplay() {
+        replayGame = null
+        replayMoves = emptyList()
+        replayIndex = -1
+        replayAutoPlay = false
     }
 
     private fun maybeTriggerAI() {

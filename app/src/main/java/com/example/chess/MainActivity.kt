@@ -74,6 +74,15 @@ class MainActivity : AppCompatActivity(), ChessRenderer.Callbacks {
     // Dialog bubble for AI character speech
     private lateinit var dialogBubble: TextView
 
+    // Main-thread handler for delayed UI updates.
+    private val uiHandler = android.os.Handler(android.os.Looper.getMainLooper())
+
+    // ---- game history overlays ----
+    private lateinit var historyOverlay: FrameLayout
+    private lateinit var replayOverlay: FrameLayout
+    private lateinit var replayMoveText: TextView
+    private lateinit var replayPlayBtn: Button
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -84,6 +93,7 @@ class MainActivity : AppCompatActivity(), ChessRenderer.Callbacks {
 
         requestHighRefreshRate()
         sound = SoundFx()
+        GameStorage.init(this)
 
         val root = FrameLayout(this)
         glView = ChessGLSurfaceView(this, this)
@@ -97,6 +107,8 @@ class MainActivity : AppCompatActivity(), ChessRenderer.Callbacks {
         victoryOverlay = buildVictory()
         curveOverlay = buildCurveOverlay()
         detailOverlay = buildDetailOverlay()
+        historyOverlay = buildHistoryList()
+        replayOverlay = buildReplayOverlay()
         root.addView(homeOverlay, FrameLayout.LayoutParams(MATCH, MATCH))
         root.addView(modeOverlay, FrameLayout.LayoutParams(MATCH, MATCH))
         root.addView(characterOverlay, FrameLayout.LayoutParams(MATCH, MATCH))
@@ -104,12 +116,16 @@ class MainActivity : AppCompatActivity(), ChessRenderer.Callbacks {
         root.addView(victoryOverlay, FrameLayout.LayoutParams(MATCH, MATCH))
         root.addView(curveOverlay, FrameLayout.LayoutParams(MATCH, MATCH))
         root.addView(detailOverlay, FrameLayout.LayoutParams(MATCH, MATCH))
+        root.addView(historyOverlay, FrameLayout.LayoutParams(MATCH, MATCH))
+        root.addView(replayOverlay, FrameLayout.LayoutParams(MATCH, MATCH))
         modeOverlay.visibility = View.GONE
         characterOverlay.visibility = View.GONE
         colorOverlay.visibility = View.GONE
         victoryOverlay.visibility = View.GONE
         curveOverlay.visibility = View.GONE
         detailOverlay.visibility = View.GONE
+        historyOverlay.visibility = View.GONE
+        replayOverlay.visibility = View.GONE
 
         ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
             val topBar = insets.getInsets(WindowInsetsCompat.Type.statusBars()).top
@@ -297,7 +313,299 @@ class MainActivity : AppCompatActivity(), ChessRenderer.Callbacks {
         f.addView(start, FrameLayout.LayoutParams(WRAP, WRAP).apply {
             gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL; bottomMargin = dp(96)
         })
+        val history = pillButton("对局历史", "#42A5F5", "#1565C0").apply {
+            textSize = 18f; setPadding(dp(44), dp(14), dp(44), dp(14))
+            setOnClickListener { sound.play(SoundFx.Type.CLICK); fadeOut(homeOverlay) { showHistoryList() } }
+        }
+        f.addView(history, FrameLayout.LayoutParams(WRAP, WRAP).apply {
+            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL; bottomMargin = dp(40)
+        })
         return f
+    }
+
+    // ======================== Game history list ========================
+
+    private fun buildHistoryList(): FrameLayout {
+        val f = FrameLayout(this).apply {
+            background = ColorDrawable(Color.parseColor("#CC000000")); isClickable = true
+        }
+        val title = TextView(this).apply {
+            text = "对局历史"; textSize = 22f; setTextColor(Color.WHITE)
+            typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER
+            setShadowLayer(8f, 0f, 2f, Color.BLACK)
+        }
+        f.addView(title, FrameLayout.LayoutParams(WRAP, WRAP).apply {
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; topMargin = dp(36)
+        })
+        f.addView(pillButton("← 返回", "#78909C", "#455A64").apply {
+            textSize = 14f; setPadding(dp(24), dp(10), dp(24), dp(10))
+            setOnClickListener { sound.play(SoundFx.Type.CLICK); hideHistoryList() }
+        }, FrameLayout.LayoutParams(WRAP, WRAP).apply {
+            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL; bottomMargin = dp(32)
+        })
+        return f
+    }
+
+    private fun showHistoryList() {
+        val f = historyOverlay
+        // Remove old list content (keep title and back button, which are children 0 and 1).
+        while (f.childCount > 2) f.removeViewAt(2)
+
+        val index = GameStorage.loadIndex()
+        if (index.isEmpty()) {
+            val empty = TextView(this).apply {
+                text = "暂无对局记录\n快去下一局吧！"
+                textSize = 15f; setTextColor(Color.parseColor("#80FFFFFF"))
+                gravity = Gravity.CENTER; setPadding(dp(20), dp(20), dp(20), dp(20))
+            }
+            f.addView(empty, FrameLayout.LayoutParams(WRAP, WRAP).apply { gravity = Gravity.CENTER })
+        } else {
+            val scrollView = ScrollView(this).apply { setBackgroundColor(Color.TRANSPARENT) }
+            val list = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(16), dp(16), dp(16))
+            }
+            for (entry in index) {
+                list.addView(historyEntryRow(entry))
+                list.addView(spacer(dp(8)))
+            }
+            scrollView.addView(list)
+            f.addView(scrollView, FrameLayout.LayoutParams(dp(360), MATCH).apply {
+                gravity = Gravity.CENTER; topMargin = dp(64); bottomMargin = dp(68)
+            })
+        }
+        f.alpha = 0f; f.visibility = View.VISIBLE
+        f.animate().alpha(1f).setDuration(280).start()
+    }
+
+    private fun hideHistoryList() {
+        if (historyOverlay.visibility != View.VISIBLE) return
+        historyOverlay.animate().alpha(0f).setDuration(200).withEndAction {
+            historyOverlay.visibility = View.GONE
+            fadeIn(homeOverlay)
+        }.start()
+    }
+
+    private fun historyEntryRow(entry: GameIndexEntry): LinearLayout {
+        val ll = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(12), dp(10), dp(16), dp(10))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(14).toFloat()
+                setColor(Color.parseColor("#CC2A2F3A")); setStroke(dp(1), Color.parseColor("#33FFFFFF"))
+            }
+            isClickable = true; setOnClickListener { sound.play(SoundFx.Type.CLICK); showReplay(entry.id) }
+        }
+        // Thumbnail (left)
+        val thumb = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            background = GradientDrawable().apply {
+                cornerRadius = dp(8).toFloat()
+                setColor(Color.parseColor("#1A1C24"))
+                setStroke(dp(1), Color.parseColor("#22FFFFFF"))
+            }
+        }
+        val bmp = GameStorage.loadThumbnail(entry.id)
+        if (bmp != null) thumb.setImageBitmap(bmp)
+        ll.addView(thumb, LinearLayout.LayoutParams(dp(60), dp(60)).apply { marginEnd = dp(12) })
+
+        // Text info (center)
+        val textCol = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.START }
+        textCol.addView(TextView(this).apply {
+            text = entry.opponentName; textSize = 16f; setTextColor(Color.WHITE)
+            typeface = Typeface.DEFAULT_BOLD
+        })
+        textCol.addView(TextView(this).apply {
+            val fmt = java.text.SimpleDateFormat("MM/dd HH:mm", java.util.Locale.getDefault())
+            text = "${fmt.format(java.util.Date(entry.endTime))}  ·  ${formatDuration(entry.durationMs)}  ·  ${entry.totalMoves}步"
+            textSize = 11f; setTextColor(Color.parseColor("#90A4AE"))
+        })
+        ll.addView(textCol, LinearLayout.LayoutParams(0, WRAP, 1f))
+
+        // Result (right)
+        val resultText: String; val resultColor: Int
+        when (entry.winner) {
+            "WHITE" -> { resultText = "白胜"; resultColor = Color.parseColor("#FFCC80") }
+            "BLACK" -> { resultText = "黑胜"; resultColor = Color.parseColor("#90CAF9") }
+            else -> { resultText = "和棋"; resultColor = Color.parseColor("#B0BEC5") }
+        }
+        ll.addView(TextView(this).apply {
+            text = resultText; textSize = 15f; setTextColor(resultColor)
+            typeface = Typeface.DEFAULT_BOLD
+        })
+        return ll
+    }
+
+    private fun formatDuration(ms: Long): String {
+        val sec = ms / 1000
+        return if (sec < 60) "${sec}s"
+        else "${sec / 60}m${sec % 60}s"
+    }
+
+    // ======================== Replay overlay ========================
+
+    private fun buildReplayOverlay(): FrameLayout {
+        val f = FrameLayout(this).apply {
+            background = ColorDrawable(Color.parseColor("#66000000")); isClickable = true
+        }
+        // Move counter at top
+        replayMoveText = TextView(this).apply {
+            text = "第 0/0 步"; textSize = 18f; setTextColor(Color.WHITE)
+            typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER
+            setShadowLayer(8f, 0f, 2f, Color.BLACK)
+        }
+        f.addView(replayMoveText, FrameLayout.LayoutParams(WRAP, WRAP).apply {
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; topMargin = dp(40)
+        })
+        // Exit button (top right)
+        f.addView(pillButton("✕ 退出回放", "#EF5350", "#C62828").apply {
+            textSize = 13f; setPadding(dp(18), dp(8), dp(18), dp(8))
+            setOnClickListener { sound.play(SoundFx.Type.CLICK); hideReplay() }
+        }, FrameLayout.LayoutParams(WRAP, WRAP).apply {
+            gravity = Gravity.TOP or Gravity.END; topMargin = dp(16); marginEnd = dp(16)
+        })
+        // Bottom button bar
+        val btnBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER
+        }
+        val prevBtn = pillButton("◀ 上一步", "#7E57C2", "#4527A0").apply {
+            textSize = 14f; setPadding(dp(18), dp(10), dp(18), dp(10))
+            setOnClickListener {
+                glView.postReplayPrev()
+                uiHandler.postDelayed({ updateReplayUI() }, 80)
+            }
+        }
+        btnBar.addView(prevBtn, LinearLayout.LayoutParams(0, WRAP, 1f).apply { marginEnd = dp(8) })
+        replayPlayBtn = pillButton("▶ 播放", "#66BB6A", "#2E7D32").apply {
+            textSize = 14f; setPadding(dp(18), dp(10), dp(18), dp(10))
+            setOnClickListener {
+                glView.postReplayToggleAutoPlay()
+                uiHandler.postDelayed({ updateReplayUI() }, 80)
+            }
+        }
+        btnBar.addView(replayPlayBtn, LinearLayout.LayoutParams(0, WRAP, 1f).apply { marginEnd = dp(8) })
+        val nextBtn = pillButton("下一步 ▶", "#7E57C2", "#4527A0").apply {
+            textSize = 14f; setPadding(dp(18), dp(10), dp(18), dp(10))
+            setOnClickListener {
+                glView.postReplayNext()
+                uiHandler.postDelayed({ updateReplayUI() }, 80)
+            }
+        }
+        btnBar.addView(nextBtn, LinearLayout.LayoutParams(0, WRAP, 1f))
+        f.addView(btnBar, FrameLayout.LayoutParams(MATCH, WRAP).apply {
+            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL; bottomMargin = dp(28)
+            marginStart = dp(16); marginEnd = dp(16)
+        })
+        return f
+    }
+
+    private fun showReplay(id: String) {
+        val record = GameStorage.loadGame(id) ?: return
+        hideHistoryList()
+        // Hide in-game HUD
+        setHudVisible(false)
+        glView.postBeginReplay(record.moves)
+        replayOverlay.alpha = 0f; replayOverlay.visibility = View.VISIBLE
+        replayOverlay.animate().alpha(1f).setDuration(260).start()
+        uiHandler.postDelayed({ updateReplayUI() }, 150)
+    }
+
+    private fun hideReplay() {
+        if (replayOverlay.visibility != View.VISIBLE) return
+        replayOverlay.animate().alpha(0f).setDuration(200).withEndAction {
+            replayOverlay.visibility = View.GONE
+            glView.postEndReplay()
+            showHistoryList()
+        }.start()
+    }
+
+    private fun updateReplayUI() {
+        val r = glView.renderer
+        replayMoveText.text = "第 ${r.replayCurrentIndex}/${r.replayMoveCount} 步"
+        replayPlayBtn.text = if (r.isReplaying && r.isReplayAutoPlaying) "⏸ 暂停" else "▶ 播放"
+    }
+
+    // ======================== System back button ========================
+
+    override fun onBackPressed() {
+        when {
+            replayOverlay.visibility == View.VISIBLE -> hideReplay()
+            historyOverlay.visibility == View.VISIBLE -> hideHistoryList()
+            detailOverlay.visibility == View.VISIBLE -> hideCharacterDetail()
+            characterOverlay.visibility == View.VISIBLE -> {
+                sound.play(SoundFx.Type.CLICK)
+                fadeOut(characterOverlay) { fadeIn(modeOverlay) }
+            }
+            modeOverlay.visibility == View.VISIBLE -> {
+                sound.play(SoundFx.Type.CLICK)
+                fadeOut(modeOverlay) { fadeIn(homeOverlay) }
+            }
+            curveOverlay.visibility == View.VISIBLE -> hideCurve()
+            victoryOverlay.visibility == View.VISIBLE -> {} // block back during victory
+            else -> super.onBackPressed()
+        }
+    }
+
+    // ======================== Game-end save handler ========================
+
+    override fun onGameEnded(winner: PieceColor?, status: GameStatus) = runOnUiThread {
+        val mode = currentMode ?: return@runOnUiThread
+        val recMode = if (mode == ChessRenderer.Mode.TWO_PLAYER) "TWO_PLAYER" else "VS_AI"
+
+        val r = glView.renderer
+        val moves = r.currentGame.moveHistory.toList()
+        if (moves.size < 2) return@runOnUiThread
+
+        val startTime = r.gameStartTimeMs
+        val endTime = System.currentTimeMillis()
+
+        val aiCharId: String?
+        val aiCharName: String?
+        val aiDepth: Int?
+        val aiColor: String?
+        if (mode == ChessRenderer.Mode.VS_AI) {
+            aiCharId = chosenCharacter.id
+            aiCharName = chosenCharacter.name
+            aiDepth = chosenCharacter.depth
+            aiColor = r.currentAiColor.name
+        } else {
+            aiCharId = null; aiCharName = null; aiDepth = null; aiColor = null
+        }
+
+        val record = GameRecord(
+            id = endTime.toString(),
+            mode = recMode,
+            aiCharacterId = aiCharId,
+            aiCharacterName = aiCharName,
+            aiDepth = aiDepth,
+            aiColor = aiColor,
+            winner = winner?.name,
+            status = status.name,
+            totalMoves = moves.size,
+            startTime = startTime,
+            endTime = endTime,
+            durationMs = endTime - startTime,
+            moves = moves.map { m ->
+                MoveRecord(
+                    fromR = m.fromR, fromC = m.fromC,
+                    toR = m.toR, toC = m.toC,
+                    isCastle = m.isCastle,
+                    isEnPassant = m.isEnPassant,
+                    isTwoStep = m.isTwoStep,
+                    promotion = m.promotion?.name
+                )
+            }
+        )
+
+        // Capture a screenshot after a short delay to let the final board render.
+        glView.postDelayed({
+            glView.postScreenshot { bmp ->
+                // Save on a background thread.
+                Thread {
+                    GameStorage.saveGame(record, bmp)
+                    bmp.recycle()
+                }.apply { isDaemon = true }.start()
+            }
+        }, 300)
     }
 
     private fun buildModeSelect(): FrameLayout {
@@ -653,7 +961,7 @@ class MainActivity : AppCompatActivity(), ChessRenderer.Callbacks {
 
     // ----------------------------------------------------- renderer callbacks
 
-    override fun onStatus(s: GameStatus, turn: PieceColor) = runOnUiThread { updateStatus(s, turn) }
+    override fun onStatus(status: GameStatus, turn: PieceColor) = runOnUiThread { updateStatus(status, turn) }
 
     override fun onGameStarted() = runOnUiThread {
         evalForCurve = emptyList()
@@ -718,15 +1026,15 @@ class MainActivity : AppCompatActivity(), ChessRenderer.Callbacks {
             .setItems(labels) { _, which -> apply(types[which]) }.show()
     }
 
-    private fun updateStatus(s: GameStatus, turn: PieceColor) {
+    private fun updateStatus(gs: GameStatus, turn: PieceColor) {
         val side = if (turn == PieceColor.WHITE) "白方" else "黑方"
-        status.text = when (s) {
+        status.text = when (gs) {
             GameStatus.ONGOING -> "$side 走棋"
             GameStatus.CHECK -> "$side 被将军！"
             GameStatus.CHECKMATE -> { val w = if (turn == PieceColor.WHITE) "黑方" else "白方"; "将死！$w 获胜" }
             GameStatus.STALEMATE -> "和棋（逼和）"
         }
-        when (s) { GameStatus.CHECKMATE, GameStatus.STALEMATE -> showVictory(s, turn); else -> hideVictory() }
+        when (gs) { GameStatus.CHECKMATE, GameStatus.STALEMATE -> showVictory(gs, turn); else -> hideVictory() }
     }
 
     // ----------------------------------------------------- lifecycle / helpers

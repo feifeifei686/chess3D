@@ -1,6 +1,7 @@
 package com.example.chess
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.opengl.GLSurfaceView
 import android.view.MotionEvent
 
@@ -36,4 +37,20 @@ class ChessGLSurfaceView(context: Context, callbacks: ChessRenderer.Callbacks) :
     fun postToggleView() = queueEvent { renderer.toggleView() }
     fun postUndo() = queueEvent { renderer.requestUndo() }
     fun postHint() = queueEvent { renderer.requestHint() }
+
+    // ---- screenshot ----
+
+    /** Capture the current GL framebuffer as a Bitmap. Callback fires on the GL thread. */
+    fun postScreenshot(callback: (Bitmap) -> Unit) =
+        queueEvent { renderer.requestScreenshot(callback) }
+
+    // ---- replay ----
+
+    fun postBeginReplay(moves: List<MoveRecord>) =
+        queueEvent { renderer.beginReplay(moves.map { it.toMove() }) }
+
+    fun postReplayNext() = queueEvent { renderer.replayNext() }
+    fun postReplayPrev() = queueEvent { renderer.replayPrev() }
+    fun postReplayToggleAutoPlay() = queueEvent { renderer.replayToggleAutoPlay() }
+    fun postEndReplay() = queueEvent { renderer.endReplay() }
 }
