@@ -22,7 +22,7 @@ object ChessModels {
         PieceType.PAWN -> 0.80f
         PieceType.ROOK -> 0.86f
         PieceType.KNIGHT -> 1.06f
-        PieceType.BISHOP -> 1.06f
+        PieceType.BISHOP -> 1.22f
         PieceType.QUEEN -> 1.28f
         PieceType.KING -> 1.45f
     }
@@ -70,11 +70,14 @@ object ChessModels {
         0.16f, 0.38f    // front-bottom of neck
     )
 
+    // Tall mitre with a sharp peak — reads clearly from overhead vs the pawn's
+    // round head. The collar ring stays prominent, giving the classic bishop
+    // silhouette: base → narrow stem → wide collar → neck → flared mitre → point.
     private val BISHOP = floatArrayOf(
         0.00f, 0.00f, 0.38f, 0.00f, 0.38f, 0.07f, 0.24f, 0.13f,
         0.16f, 0.24f, 0.14f, 0.44f, 0.13f, 0.54f, 0.23f, 0.60f,
-        0.13f, 0.64f, 0.16f, 0.72f, 0.20f, 0.82f, 0.18f, 0.92f,
-        0.10f, 1.00f, 0.12f, 1.04f, 0.06f, 1.08f, 0.00f, 1.06f
+        0.13f, 0.64f, 0.15f, 0.74f, 0.22f, 0.86f, 0.18f, 0.98f,
+        0.10f, 1.10f, 0.04f, 1.18f, 0.00f, 1.22f
     )
 
     private val QUEEN = floatArrayOf(

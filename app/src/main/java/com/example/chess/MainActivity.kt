@@ -16,6 +16,9 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 
 class MainActivity : AppCompatActivity(), ChessRenderer.Callbacks {
 
@@ -25,7 +28,6 @@ class MainActivity : AppCompatActivity(), ChessRenderer.Callbacks {
     // HUD (visible during a game)
     private lateinit var status: TextView
     private lateinit var material: TextView
-    private lateinit var legend: TextView
     private lateinit var exitBtn: Button
     private lateinit var viewBtn: Button
     private lateinit var undoBtn: Button
@@ -46,6 +48,14 @@ class MainActivity : AppCompatActivity(), ChessRenderer.Callbacks {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Edge-to-edge: GL surface renders behind system bars.
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        window.statusBarColor = Color.TRANSPARENT
+        window.navigationBarColor = Color.TRANSPARENT
+        // Light status-bar icons on our dark background.
+        WindowCompat.getInsetsController(window, window.decorView).isAppearanceLightStatusBars = false
+
         requestHighRefreshRate()
         sound = SoundFx()
 
@@ -68,6 +78,24 @@ class MainActivity : AppCompatActivity(), ChessRenderer.Callbacks {
         difficultyOverlay.visibility = View.GONE
         colorOverlay.visibility = View.GONE
         victoryOverlay.visibility = View.GONE
+
+        // Shift HUD controls out from under the system bars, using the real
+        // device insets instead of guessing a fixed status-bar / nav-bar height.
+        ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
+            val topBar = insets.getInsets(WindowInsetsCompat.Type.statusBars()).top
+            val bottomBar = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom
+
+            (status.layoutParams as FrameLayout.LayoutParams).topMargin = topBar + dp(2)
+            (material.layoutParams as FrameLayout.LayoutParams).topMargin = topBar + dp(34)
+            (exitBtn.layoutParams as FrameLayout.LayoutParams).topMargin = topBar
+
+            (undoBtn.layoutParams as FrameLayout.LayoutParams).bottomMargin = bottomBar + dp(10)
+            (viewBtn.layoutParams as FrameLayout.LayoutParams).bottomMargin = bottomBar + dp(68)
+            (hintBtn.layoutParams as FrameLayout.LayoutParams).bottomMargin = bottomBar + dp(126)
+            (newGameBtn.layoutParams as FrameLayout.LayoutParams).bottomMargin = bottomBar + dp(10)
+
+            WindowInsetsCompat.CONSUMED
+        }
 
         setContentView(root)
     }
@@ -97,19 +125,6 @@ class MainActivity : AppCompatActivity(), ChessRenderer.Callbacks {
         root.addView(material, FrameLayout.LayoutParams(MATCH, WRAP).apply {
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
             topMargin = dp(58)
-        })
-
-        legend = TextView(this).apply {
-            textSize = 11f
-            gravity = Gravity.CENTER
-            setShadowLayer(5f, 0f, 1f, Color.BLACK)
-            setLineSpacing(dp(2).toFloat(), 1f)
-            text = buildLegendText()
-            visibility = View.GONE
-        }
-        root.addView(legend, FrameLayout.LayoutParams(MATCH, WRAP).apply {
-            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-            bottomMargin = dp(2)
         })
 
         exitBtn = pillButton("✕ 退出", "#EF5350", "#C62828").apply {
@@ -186,7 +201,7 @@ class MainActivity : AppCompatActivity(), ChessRenderer.Callbacks {
     }
 
     private fun setHudVisible(visible: Boolean) {
-        for (v in listOf(status, material, legend, exitBtn, viewBtn, undoBtn, newGameBtn, hintBtn)) {
+        for (v in listOf(status, material, exitBtn, viewBtn, undoBtn, newGameBtn, hintBtn)) {
             if (visible) fadeIn(v) else v.visibility = View.GONE
         }
         if (visible) {
@@ -272,21 +287,21 @@ class MainActivity : AppCompatActivity(), ChessRenderer.Callbacks {
 
         panel.addView(heading("选择 AI 难度"))
         panel.addView(spacer(dp(22)))
-        panel.addView(bigChoice("简单", "AI 思考较浅，适合新手", "#66BB6A", "#2E7D32") {
+        panel.addView(bigChoice("简单", "AI 只看一步，会送子", "#66BB6A", "#2E7D32") {
+            sound.play(SoundFx.Type.CLICK)
+            chosenDepth = 1
+            fadeOut(difficultyOverlay) { fadeIn(colorOverlay) }
+        })
+        panel.addView(spacer(dp(14)))
+        panel.addView(bigChoice("普通", "基础战术，均衡对局", "#42A5F5", "#1565C0") {
             sound.play(SoundFx.Type.CLICK)
             chosenDepth = 2
             fadeOut(difficultyOverlay) { fadeIn(colorOverlay) }
         })
         panel.addView(spacer(dp(14)))
-        panel.addView(bigChoice("普通", "均衡的对手", "#42A5F5", "#1565C0") {
+        panel.addView(bigChoice("困难", "深算三步，有挑战性", "#EF5350", "#C62828") {
             sound.play(SoundFx.Type.CLICK)
             chosenDepth = 3
-            fadeOut(difficultyOverlay) { fadeIn(colorOverlay) }
-        })
-        panel.addView(spacer(dp(14)))
-        panel.addView(bigChoice("困难", "AI 思考更深，更具挑战", "#EF5350", "#C62828") {
-            sound.play(SoundFx.Type.CLICK)
-            chosenDepth = 4
             fadeOut(difficultyOverlay) { fadeIn(colorOverlay) }
         })
         panel.addView(spacer(dp(18)))
@@ -600,37 +615,6 @@ class MainActivity : AppCompatActivity(), ChessRenderer.Callbacks {
             }
             stateListAnimator = null
         }
-    }
-
-    /** Color-coded identification key, matching the on-board rings in the renderer. */
-    private fun buildLegendText(): CharSequence {
-        val items = listOf(
-            "● 兵" to "#D1D1E0",
-            "● 马" to "#2E94FF",
-            "● 象" to "#42EB57",
-            "● 车" to "#FF8F14",
-            "● 后" to "#FF47E6",
-            "● 王" to "#FFD91F"
-        )
-        val sb = android.text.SpannableStringBuilder()
-        for ((i, it) in items.withIndex()) {
-            val (label, hex) = it
-            val start = sb.length
-            sb.append(label)
-            sb.setSpan(
-                android.text.style.ForegroundColorSpan(Color.parseColor(hex)),
-                start, sb.length, android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
-            )
-            if (i != items.lastIndex) {
-                val s2 = sb.length
-                sb.append("   ")
-                sb.setSpan(
-                    android.text.style.ForegroundColorSpan(Color.parseColor("#FFFFFF")),
-                    s2, sb.length, android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
-                )
-            }
-        }
-        return sb
     }
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()

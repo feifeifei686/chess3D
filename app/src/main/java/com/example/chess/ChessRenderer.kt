@@ -274,7 +274,6 @@ class ChessRenderer(private val callbacks: Callbacks) : GLSurfaceView.Renderer {
         GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA)
         GLES20.glDepthMask(false)
         drawShadows()
-        drawIdRings()
         drawHighlights()
         drawHints()
         GLES20.glDepthMask(true)
@@ -480,51 +479,6 @@ class ChessRenderer(private val callbacks: Callbacks) : GLSurfaceView.Renderer {
         drawOverlay(x + ox, z + oz, 0.30f)
     }
 
-    /** Colored collar around each on-board piece, so types read from straight overhead. */
-    private fun drawIdRings() {
-        if (homing || phase != Phase.PLAYING) return
-        GLES20.glUseProgram(ovProgram)
-        val a = anim
-        for (r in 0 until 8) {
-            for (c in 0 until 8) {
-                if (a != null && a.movers.any { it.skipR == r && it.skipC == c }) continue
-                if (flyers.any { it.skipR == r && it.skipC == c }) continue
-                val p = game.board[r][c] ?: continue
-                drawIdRing(p.type, ChessModels.squareCenterX(c) + shakeAmount(r, c), ChessModels.squareCenterZ(r))
-            }
-        }
-        if (a != null) {
-            val t = ((nowNs - a.startNs).toFloat() / a.durNs).coerceIn(0f, 1f)
-            val s = smooth(t)
-            for (m in a.movers) {
-                val x = m.fromX + (m.toX - m.fromX) * s
-                val z = m.fromZ + (m.toZ - m.fromZ) * s
-                drawIdRing(m.type, x, z)
-            }
-        }
-        GLES20.glUniform1f(ovInner, 0f)
-    }
-
-    /**
-     * A two-pass per-type collar: a dark rim for contrast on any tile, then a
-     * bold, fully-opaque colored band. Ring size also varies by piece type, so
-     * type reads from both colour and footprint.
-     */
-    private fun drawIdRing(t: PieceType, x: Float, z: Float) {
-        val rad = TYPE_RING_RADIUS[t.ordinal]
-        // Dark backing rim (slightly larger) — pops the colour on light & dark squares.
-        GLES20.glUniform4f(ovColor, 0f, 0f, 0f, 0.55f)
-        GLES20.glUniform1f(ovFeather, 0.05f)
-        GLES20.glUniform1f(ovInner, 0.44f)
-        drawOverlay(x, z, rad)
-        // Bold colored band sitting inside the rim.
-        val c = TYPE_COLOR[t.ordinal]
-        GLES20.glUniform4f(ovColor, c[0], c[1], c[2], 1f)
-        GLES20.glUniform1f(ovFeather, 0.04f)
-        GLES20.glUniform1f(ovInner, 0.60f)
-        drawOverlay(x, z, rad * 0.93f)
-    }
-
     /** Lateral wobble (board units) for a checker square that's shaking; 0 when idle. */
     private fun shakeAmount(r: Int, c: Int): Float {
         if (shakeSquares.isEmpty()) return 0f
@@ -722,7 +676,7 @@ class ChessRenderer(private val callbacks: Callbacks) : GLSurfaceView.Renderer {
     }
 
     fun exitToHome() {
-        if (phase != Phase.PLAYING) return
+        if (phase != Phase.PLAYING || homing) return
         phase = Phase.TO_HOME
         clearTransient()
         startHomingAnimation()
@@ -748,17 +702,27 @@ class ChessRenderer(private val callbacks: Callbacks) : GLSurfaceView.Renderer {
 
     fun newGame() {
         if (phase != Phase.PLAYING && phase != Phase.TO_GAME) return
-        game.reset()
+        if (homing) return
         clearTransient()
-        graveyard.clear()
-        moveLog.clear()
-        callbacks.onStatus(game.status, game.turn)
-        emitMeta()
-        maybeTriggerAI()
+        startHomingAnimation()
+        callbacks.onCanUndo(false)
+        // Use a still camera as a timer for the homing animation;
+        // when it fires the game resets and a fresh match begins.
+        startCam(camEye.clone(), camUp.clone(), 1_200_000_000L) {
+            game.reset()
+            graveyard.clear()
+            moveLog.clear()
+            homing = false
+            homers.clear()
+            aiThinking = false
+            callbacks.onStatus(game.status, game.turn)
+            emitMeta()
+            maybeTriggerAI()
+        }
     }
 
     fun handleTap(sx: Float, sy: Float) = safely {
-        if (phase != Phase.PLAYING || anim != null || busy || aiThinking || flyers.isNotEmpty()) return@safely
+        if (phase != Phase.PLAYING || anim != null || busy || aiThinking || flyers.isNotEmpty() || homing) return@safely
         if (mode == Mode.VS_AI && game.turn == aiColor) return@safely
         val inCheck = game.status == GameStatus.CHECK
         val sq = pick(sx, sy)
@@ -892,7 +856,7 @@ class ChessRenderer(private val callbacks: Callbacks) : GLSurfaceView.Renderer {
     }
 
     fun requestUndo() = safely {
-        if (phase != Phase.PLAYING || anim != null || busy || aiThinking || flyers.isNotEmpty()) return@safely
+        if (phase != Phase.PLAYING || anim != null || busy || aiThinking || flyers.isNotEmpty() || homing) return@safely
         if (animQueue.isNotEmpty()) return@safely
         val plies = if (mode == Mode.VS_AI) 2 else 1
         if (moveLog.size < plies) return@safely
@@ -966,7 +930,7 @@ class ChessRenderer(private val callbacks: Callbacks) : GLSurfaceView.Renderer {
 
     /** Compute the strongest move in the background and flash it on the board. */
     fun requestHint() = safely {
-        if (phase != Phase.PLAYING || anim != null || busy || aiThinking || hintThinking || flyers.isNotEmpty()) return@safely
+        if (phase != Phase.PLAYING || anim != null || busy || aiThinking || hintThinking || flyers.isNotEmpty() || homing) return@safely
         if (mode == Mode.VS_AI && game.turn == aiColor) return@safely
         if (game.status != GameStatus.ONGOING && game.status != GameStatus.CHECK) return@safely
         hintThinking = true
@@ -989,7 +953,7 @@ class ChessRenderer(private val callbacks: Callbacks) : GLSurfaceView.Renderer {
     }
 
     private fun maybeTriggerAI() {
-        if (mode != Mode.VS_AI || phase != Phase.PLAYING || anim != null || aiThinking) return
+        if (mode != Mode.VS_AI || phase != Phase.PLAYING || anim != null || aiThinking || homing) return
         if (game.turn != aiColor) return
         if (game.status != GameStatus.ONGOING && game.status != GameStatus.CHECK) return
         aiThinking = true
@@ -1180,26 +1144,6 @@ class ChessRenderer(private val callbacks: Callbacks) : GLSurfaceView.Renderer {
         // Best-move hint search depth and how long the flash lingers.
         private const val HINT_DEPTH = 3
         private const val HINT_DUR_NS = 3_400_000_000L
-
-        // Identification ring hue per piece type (indexed by PieceType.ordinal).
-        private val TYPE_COLOR = arrayOf(
-            floatArrayOf(0.82f, 0.82f, 0.88f), // PAWN   - bright gray
-            floatArrayOf(0.18f, 0.58f, 1.00f), // KNIGHT - blue
-            floatArrayOf(0.26f, 0.92f, 0.34f), // BISHOP - green
-            floatArrayOf(1.00f, 0.56f, 0.08f), // ROOK   - orange
-            floatArrayOf(1.00f, 0.28f, 0.90f), // QUEEN  - magenta
-            floatArrayOf(1.00f, 0.85f, 0.12f)  // KING   - gold
-        )
-
-        // Identification ring footprint per piece type — a second, shape-based cue.
-        private val TYPE_RING_RADIUS = floatArrayOf(
-            0.40f, // PAWN   - smallest
-            0.45f, // KNIGHT
-            0.45f, // BISHOP
-            0.48f, // ROOK
-            0.50f, // QUEEN
-            0.50f  // KING    - largest
-        )
 
         private fun normalize(v: FloatArray): FloatArray {
             val len = sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2])
